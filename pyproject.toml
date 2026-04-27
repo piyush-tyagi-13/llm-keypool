@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llm-aggregator"
+name = "llm-keypool"
 version = "0.2.0"
 description = "Free-tier LLM API key pool with rotation, cooldown, and LangChain drop-in"
 requires-python = ">=3.11"

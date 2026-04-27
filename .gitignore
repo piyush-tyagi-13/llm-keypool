@@ -1,0 +1,33 @@
+# Database - contains registered API keys, never commit
+db/
+*.db
+*.db-wal
+*.db-shm
+
+# Sensitive key files
+keys_and_models.txt
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-aggregator"
+version = "0.1.0"
+description = "MCP server that aggregates free-tier LLM API keys with automatic rotation"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.6.0",
+    "httpx>=0.27.0",
+    "openai>=1.30.0",
+    "langchain-core>=0.3.0",
+]
+
+[project.scripts]
+llm-aggregator = "llm_aggregator.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["llm_aggregator*"]

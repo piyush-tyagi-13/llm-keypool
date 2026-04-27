@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-aggregator"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server that aggregates free-tier LLM API keys with automatic rotation"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,3 +19,6 @@ llm-aggregator = "llm_aggregator.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["llm_aggregator*"]
+
+[tool.setuptools.package-data]
+"llm_aggregator" = ["config/*.json", "config/*.yaml"]

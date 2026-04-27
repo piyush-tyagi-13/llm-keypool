@@ -96,6 +96,10 @@ class AggregatorChat(BaseChatModel):
     def _llm_type(self) -> str:
         return "llm_aggregator"
 
+    @property
+    def _identifying_params(self) -> dict:
+        return {"model": f"aggregator/{self.category}", "category": self.category}
+
     def _generate(
         self,
         messages: list[BaseMessage],
@@ -126,20 +130,33 @@ class AggregatorChat(BaseChatModel):
         if result.error:
             raise RuntimeError(f"LLM Aggregator error: {result.error}")
 
+        model_name = key_data["model"] or key_data["provider"]
+        tokens = result.tokens_used or 0
+
         ai_msg = AIMessage(
             content=result.text,
+            usage_metadata={
+                "input_tokens": 0,
+                "output_tokens": tokens,
+                "total_tokens": tokens,
+            },
             response_metadata={
                 "provider": key_data["provider"],
-                "model": key_data["model"],
-                "tokens_used": result.tokens_used,
+                "model": model_name,
+                "model_name": model_name,
+                "tokens_used": tokens,
             },
         )
         return ChatResult(
             generations=[ChatGeneration(message=ai_msg)],
             llm_output={
+                "model_name": model_name,
                 "provider": key_data["provider"],
-                "model": key_data["model"],
-                "tokens_used": result.tokens_used,
+                "token_usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": tokens,
+                    "total_tokens": tokens,
+                },
             },
         )
 

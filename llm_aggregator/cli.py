@@ -176,6 +176,6 @@ def gui():
     try:
         from llm_aggregator.tui import run
     except ImportError:
-        console.print("[red]Textual not installed.[/red] Run: pip install 'llm-aggregator[gui]'")
+        console.print("[red]Textual not installed.[/red] Run: pip install 'llm-aggregator\\[gui]'")
         raise typer.Exit(1)
     run()

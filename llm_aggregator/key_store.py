@@ -5,9 +5,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
-# DB lives at project root db/ by default; override via env var
+# DB lives at ~/.llm-aggregator/keys.db by default; override via LLM_AGGREGATOR_DB env var
 DB_PATH = Path(
-    os.environ.get("LLM_AGGREGATOR_DB", str(Path(__file__).parent.parent / "db" / "keys.db"))
+    os.environ.get("LLM_AGGREGATOR_DB", str(Path.home() / ".llm-aggregator" / "keys.db"))
 )
 
 SCHEMA = """

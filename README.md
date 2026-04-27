@@ -23,37 +23,37 @@ Override path: `export LLM_AGGREGATOR_DB=/custom/path/keys.db`
 
 ## Installation
 
-Not on PyPI. Install from GitHub:
+**PyPI:** `llm-keypool`
 
 ```bash
-pip install git+https://github.com/piyush-tyagi-13/llm-aggregator
+# Recommended - with TUI
+uv tool install "llm-keypool[gui]"
+
+# Without TUI
+uv tool install llm-keypool
+
+# pip
+pip install llm-keypool
 ```
 
 With MCP server support:
 
 ```bash
-pip install "llm-aggregator[mcp] @ git+https://github.com/piyush-tyagi-13/llm-aggregator"
+uv tool install "llm-keypool[mcp]"
 ```
 
-With Textual TUI:
+If installing alongside mdcore (so mdcore can import it):
 
 ```bash
-pip install "llm-aggregator[gui] @ git+https://github.com/piyush-tyagi-13/llm-aggregator"
-```
-
-If installing alongside another `uv tool` (e.g. mdcore):
-
-```bash
-uv tool install "markdowncore-ai[gui]" --with "llm-aggregator @ git+https://github.com/piyush-tyagi-13/llm-aggregator"
+uv tool install --force "markdowncore-ai[gui]" --with llm-keypool
 ```
 
 ### Upgrading
 
 ```bash
-pip install --force-reinstall git+https://github.com/piyush-tyagi-13/llm-aggregator
-
-# via uv tool:
-uv tool install --force --refresh "markdowncore-ai[gui]" --with "llm-aggregator @ git+https://github.com/piyush-tyagi-13/llm-aggregator"
+uv tool upgrade llm-keypool
+# re-add to mdcore environment too
+uv tool install --force "markdowncore-ai[gui]" --with llm-keypool
 ```
 
 ---

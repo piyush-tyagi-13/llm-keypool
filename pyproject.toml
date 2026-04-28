@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-keypool"
-version = "0.2.0"
+version = "0.2.1"
 description = "Free-tier LLM API key pool with rotation, cooldown, and LangChain drop-in"
 requires-python = ">=3.11"
 dependencies = [

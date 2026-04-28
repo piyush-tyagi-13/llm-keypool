@@ -16,14 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = [
-    "mcp[cli]>=1.6.0",
-]
 gui = [
     "textual>=0.80",
 ]
 all = [
-    "mcp[cli]>=1.6.0",
     "textual>=0.80",
 ]
 

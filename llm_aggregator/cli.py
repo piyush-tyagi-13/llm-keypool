@@ -153,22 +153,6 @@ def providers():
     console.print(table)
 
 
-@app.command()
-def serve():
-    """Start the MCP server (for Claude Desktop / MCP client integration)."""
-    try:
-        import sys
-        from pathlib import Path as _Path
-        sys.path.insert(0, str(_Path(__file__).parent.parent))
-        import server
-        console.print("[dim]Starting LLM Aggregator MCP server...[/dim]")
-        server.mcp.run()
-    except ImportError as exc:
-        if "mcp" in str(exc).lower():
-            console.print("[red]MCP not installed.[/red] Run: pip install 'llm-aggregator[mcp]'")
-            raise typer.Exit(1)
-        raise
-
 
 @app.command()
 def gui():

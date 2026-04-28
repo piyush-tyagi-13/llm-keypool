@@ -4,6 +4,8 @@ Free-tier LLM key pool manager. Register API keys from multiple providers once -
 
 Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 
+**Roadmap:** OpenAI-compatible local proxy server (`llm-aggregator proxy`) - point any agent at `http://localhost:8000/v1`, llm-keypool handles routing and rotation transparently. Session affinity ensures consistent provider within a conversation.
+
 ---
 
 ## What it does
@@ -34,12 +36,6 @@ uv tool install llm-keypool
 
 # pip
 pip install llm-keypool
-```
-
-With MCP server support:
-
-```bash
-uv tool install "llm-keypool[mcp]"
 ```
 
 If installing alongside mdcore (so mdcore can import it):
@@ -159,16 +155,6 @@ Features: tabular key view, inline deactivate/clear-cooldown, add key form.
 
 ---
 
-### `llm-aggregator serve`
-
-Start the MCP server for Claude Desktop / MCP clients. Requires `[mcp]` extra.
-
-```bash
-llm-aggregator serve
-```
-
----
-
 ## Registering keys - free tier providers
 
 All providers below have a free tier. No credit card required.
@@ -271,7 +257,7 @@ print(asyncio.run(ask("What is 2 + 2?")))
 ```
 llm-aggregator/
 - llm_aggregator/
-  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, serve, gui)
+  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, gui)
   - tui.py               # Textual TUI
   - key_store.py         # SQLite persistence (~/.llm-aggregator/keys.db)
   - rotator.py           # round-robin rotation + cooldown logic
@@ -283,7 +269,6 @@ llm-aggregator/
     - cloudflare.py
   - config/
     - providers.json     # provider metadata, limits, models, reset schedules
-- server.py              # MCP server entry point (optional)
 - PROVIDER_GUIDE.md      # signup URLs and rate limits per provider
 - TODO.md                # known limitations and planned improvements
 ```

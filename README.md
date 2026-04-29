@@ -8,6 +8,16 @@ Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 
 ---
 
+## Screenshots
+
+**Key pool dashboard**
+![Keys tab](docs/screenshots/home.jpg)
+
+**Add key form**
+![Add Key tab](docs/screenshots/add_key.jpg)
+
+---
+
 ## What it does
 
 - **Multi-provider pooling** - pool keys across Groq, Cerebras, Mistral, OpenRouter, SambaNova, and more

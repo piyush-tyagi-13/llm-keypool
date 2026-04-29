@@ -9,10 +9,10 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from llm_aggregator.key_store import KeyStore
+from llm_keypool.key_store import KeyStore
 
 app = typer.Typer(
-    help="LLM Aggregator - free-tier API key pool manager",
+    help="llm-keypool - free-tier API key pool manager",
     no_args_is_help=True,
 )
 console = Console()
@@ -33,7 +33,7 @@ def status():
 
     if not keys:
         console.print("[yellow]No keys registered.[/yellow]")
-        console.print("Run: [cyan]llm-aggregator add --provider groq --key gsk_...[/cyan]")
+        console.print("Run: [cyan]llm-keypool add --provider groq --key gsk_...[/cyan]")
         return
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan")
@@ -101,7 +101,7 @@ def add(
 
 @app.command()
 def deactivate(
-    id: int = typer.Option(..., "--id", help="Key ID from 'llm-aggregator status'"),
+    id: int = typer.Option(..., "--id", help="Key ID from 'llm-keypool status'"),
 ):
     """Deactivate a key (revoked or expired). Does not delete it."""
     store = KeyStore()
@@ -120,7 +120,7 @@ def deactivate(
 
 @app.command(name="clear-cooldown")
 def clear_cooldown(
-    id: int = typer.Option(..., "--id", help="Key ID from 'llm-aggregator status'"),
+    id: int = typer.Option(..., "--id", help="Key ID from 'llm-keypool status'"),
 ):
     """Clear a key's cooldown (e.g. after quota reset confirmed)."""
     store = KeyStore()
@@ -158,8 +158,8 @@ def providers():
 def gui():
     """Launch the Textual TUI."""
     try:
-        from llm_aggregator.tui import run
+        from llm_keypool.tui import run
     except ImportError:
-        console.print("[red]Textual not installed.[/red] Run: pip install 'llm-aggregator\\[gui]'")
+        console.print("[red]Textual not installed.[/red] Run: pip install 'llm-keypool\\[gui]'")
         raise typer.Exit(1)
     run()

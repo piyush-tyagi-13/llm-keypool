@@ -1,23 +1,23 @@
 """
-LangChain-compatible wrappers for the LLM Aggregator.
+LangChain-compatible wrappers for llm-keypool.
 
 Drop into mdcore's llm_layer.py as a new backend:
 
-    from llm_aggregator.langchain_wrapper import AggregatorChat, AggregatorEmbeddings
+    from llm_keypool.langchain_wrapper import AggregatorChat, AggregatorEmbeddings
 
     # in _build_llm():
-    elif backend == "llm_aggregator":
+    elif backend == "aggregator":
         return AggregatorChat()
 
     # in _build_embeddings():
-    elif backend == "llm_aggregator":
+    elif backend == "aggregator":
         return AggregatorEmbeddings()
 
 Config (~/.mdcore/config.yaml):
     llm:
-      backend: llm_aggregator
+      backend: aggregator
     embeddings:
-      backend: llm_aggregator
+      backend: aggregator
 """
 
 from __future__ import annotations
@@ -61,7 +61,6 @@ def _run_async(coro):
     """Run async coroutine from sync context safely."""
     try:
         loop = asyncio.get_running_loop()
-        # already inside an event loop - use a thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, coro)
@@ -72,7 +71,7 @@ def _run_async(coro):
 
 class AggregatorChat(BaseChatModel):
     """
-    LangChain ChatModel backed by the LLM Aggregator.
+    LangChain ChatModel backed by llm-keypool.
     Handles key selection, rotation, and 429 retries transparently.
     """
 
@@ -81,7 +80,6 @@ class AggregatorChat(BaseChatModel):
     temperature: float = 0.7
     rotate_every: int = 5
 
-    # private - not part of Pydantic model
     _rotator: Any = None
 
     class Config:
@@ -94,11 +92,11 @@ class AggregatorChat(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "llm_aggregator"
+        return "llm_keypool"
 
     @property
     def _identifying_params(self) -> dict:
-        return {"model": f"aggregator/{self.category}", "category": self.category}
+        return {"model": f"keypool/{self.category}", "category": self.category}
 
     def _generate(
         self,
@@ -128,7 +126,7 @@ class AggregatorChat(BaseChatModel):
         )
 
         if result.error:
-            raise RuntimeError(f"LLM Aggregator error: {result.error}")
+            raise RuntimeError(f"llm-keypool error: {result.error}")
 
         model_name = key_data["model"] or key_data["provider"]
         tokens = result.tokens_used or 0
@@ -163,7 +161,7 @@ class AggregatorChat(BaseChatModel):
 
 class AggregatorEmbeddings(Embeddings):
     """
-    LangChain Embeddings backed by the LLM Aggregator.
+    LangChain Embeddings backed by llm-keypool.
     Handles key selection, rotation, and 429 retries transparently.
     """
 
@@ -199,6 +197,6 @@ class AggregatorEmbeddings(Embeddings):
         )
 
         if result.error:
-            raise RuntimeError(f"LLM Aggregator embed error: {result.error}")
+            raise RuntimeError(f"llm-keypool embed error: {result.error}")
 
         return result.embeddings

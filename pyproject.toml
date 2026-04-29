@@ -22,12 +22,16 @@ gui = [
 all = [
     "textual>=0.80",
 ]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+]
 
 [project.scripts]
-llm-aggregator = "llm_aggregator.__main__:main"
+llm-keypool = "llm_keypool.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["llm_aggregator*"]
+include = ["llm_keypool*"]
 
 [tool.setuptools.package-data]
-"llm_aggregator" = ["config/*.json", "config/*.yaml"]
+"llm_keypool" = ["config/*.json", "config/*.yaml"]

@@ -12,7 +12,7 @@ from textual.widgets import (
     Select, Static, TabbedContent, TabPane,
 )
 
-from llm_aggregator.key_store import KeyStore
+from llm_keypool.key_store import KeyStore
 
 _CONFIG_PATH = Path(__file__).parent / "config" / "providers.json"
 
@@ -137,7 +137,7 @@ class ConfirmScreen(ModalScreen[bool]):
 
 class LLMAggregatorApp(App):
     CSS = CSS
-    TITLE = "LLM Aggregator"
+    TITLE = "llm-keypool"
     BINDINGS = [
         Binding("d", "deactivate_key", "Deactivate", show=True),
         Binding("c", "clear_cooldown", "Clear Cooldown", show=True),

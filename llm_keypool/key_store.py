@@ -5,10 +5,19 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
-# DB lives at ~/.llm-aggregator/keys.db by default; override via LLM_AGGREGATOR_DB env var
-DB_PATH = Path(
-    os.environ.get("LLM_AGGREGATOR_DB", str(Path.home() / ".llm-aggregator" / "keys.db"))
-)
+# DB lives at ~/.llm-keypool/keys.db by default; override via LLM_KEYPOOL_DB env var
+_NEW_DB_DEFAULT = Path.home() / ".llm-keypool" / "keys.db"
+_OLD_DB_DEFAULT = Path.home() / ".llm-aggregator" / "keys.db"
+
+def _resolve_db_path() -> Path:
+    env = os.environ.get("LLM_KEYPOOL_DB") or os.environ.get("LLM_AGGREGATOR_DB")
+    if env:
+        return Path(env)
+    if not _NEW_DB_DEFAULT.exists() and _OLD_DB_DEFAULT.exists():
+        import shutil
+        _NEW_DB_DEFAULT.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_OLD_DB_DEFAULT, _NEW_DB_DEFAULT)
+    return _NEW_DB_DEFAULT
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -50,12 +59,13 @@ MIGRATIONS = [
 
 
 class KeyStore:
-    def __init__(self):
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: Path | None = None):
+        self._db_path = db_path or _resolve_db_path()
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(DB_PATH))
+        conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         return conn

@@ -2,7 +2,7 @@ import sys
 
 
 def main():
-    from llm_aggregator.cli import app
+    from llm_keypool.cli import app
     app()
 
 

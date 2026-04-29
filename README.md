@@ -11,10 +11,13 @@ Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 ## Screenshots
 
 **Key pool dashboard**
-![Keys tab](docs/screenshots/home.jpg)
+![Keys tab](docs/screenshots/tui-keys.png)
 
 **Add key form**
-![Add Key tab](docs/screenshots/add_key.jpg)
+![Add Key tab](docs/screenshots/tui-add-key.png)
+
+**Deactivate confirmation**
+![Confirm dialog](docs/screenshots/tui-confirm.png)
 
 ---
 
@@ -252,13 +255,21 @@ print(asyncio.run(ask("What is 2 + 2?")))
 
 ## Cooldown behaviour per provider
 
-| Provider | On 429 / exhaustion |
-|---|---|
-| Groq, Cerebras, OpenRouter | Cooldown until next UTC midnight |
-| Mistral | 35-second rolling cooldown |
-| SambaNova | 65-second rolling cooldown |
-| Cohere | Cooldown until first of next month |
-| Cloudflare | Cooldown until next UTC midnight |
+Cooldown timestamps are derived from response headers where available, so the key is released at the earliest possible moment rather than a conservative guess.
+
+| Provider | Source | Behaviour |
+|---|---|---|
+| **Groq** | `x-ratelimit-reset-requests` header | Exact reset duration parsed from the header (e.g. `1m26.4s`). On 429 with `retry-after`, uses that instead. |
+| **Cerebras** | `x-ratelimit-remaining-requests-{minute,hour,day}` | Tiered: minute exhausted → 60s; hour exhausted → 3600s; day exhausted → next UTC midnight. |
+| **Mistral** | `x-ratelimit-remaining-req-minute` | 60s rolling when per-minute quota hits zero. |
+| **OpenRouter** | none (no headers returned) | Next UTC midnight (RPD is binding limit). |
+| **SambaNova** | none | 65s rolling. |
+| **Cohere** | none | First of next calendar month (monthly call cap). |
+| **Cloudflare** | none | Next UTC midnight (daily neuron budget). |
+| **Jina** | none | 65s rolling. |
+| **HuggingFace** | none | 120s rolling. |
+
+Header parsing was verified against live API responses. Providers without header support fall back to the `cooldown_fallback.strategy` field in `providers.json`, so the strategy is config-driven rather than hardcoded.
 
 ---
 
@@ -274,6 +285,7 @@ llm-aggregator/
   - langchain_wrapper.py # AggregatorChat (BaseChatModel)
   - providers/
     - dispatch.py        # retry loop, 429 handling, provider routing
+    - headers.py         # rate-limit header parsing + per-provider cooldown extraction
     - openai_compat.py   # AsyncOpenAI client + think-token stripping
     - cohere.py
     - cloudflare.py

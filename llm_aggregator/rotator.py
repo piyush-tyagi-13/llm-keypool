@@ -3,11 +3,14 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Callable
 
 from .key_store import KeyStore
+from .providers.headers import extract_cooldown
 
 
 def _next_utc_midnight() -> str:
     now = datetime.now(timezone.utc)
-    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    return (now + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
 
 
 def _next_first_of_month() -> str:
@@ -15,7 +18,10 @@ def _next_first_of_month() -> str:
     month = now.month + 1
     year  = now.year + (1 if month > 12 else 0)
     month = 1 if month > 12 else month
-    return now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    return now.replace(
+        year=year, month=month, day=1,
+        hour=0, minute=0, second=0, microsecond=0,
+    ).isoformat()
 
 
 def _rolling(seconds: int) -> Callable[[], str]:
@@ -24,18 +30,20 @@ def _rolling(seconds: int) -> Callable[[], str]:
     return _inner
 
 
-COOLDOWN_STRATEGY: dict[str, Callable[[], str]] = {
-    "groq":             _next_utc_midnight,
-    "google_ai_studio": _next_utc_midnight,
-    "cerebras":         _next_utc_midnight,
-    "sambanova":        _rolling(65),
-    "mistral":          _rolling(35),
-    "openrouter":       _next_utc_midnight,
-    "cloudflare":       _next_utc_midnight,
-    "cohere":           _next_first_of_month,
-    "jina":             _rolling(65),
-    "huggingface":      _rolling(120),
+_FALLBACK_STRATEGIES = {
+    "daily_utc_midnight":      _next_utc_midnight,
+    "first_of_calendar_month": _next_first_of_month,
+    "rolling_60":              _rolling(60),
+    "rolling_65":              _rolling(65),
+    "rolling_120":             _rolling(120),
 }
+_DEFAULT_FALLBACK = _rolling(60)
+
+
+def _fallback_from_config(cfg: dict) -> Callable[[], str]:
+    """Read cooldown_fallback.strategy from provider config; default to rolling 60s."""
+    key = cfg.get("cooldown_fallback", {}).get("strategy", "rolling_60")
+    return _FALLBACK_STRATEGIES.get(key, _DEFAULT_FALLBACK)
 
 
 def _score_key(key: dict, cfg: dict) -> float:
@@ -147,16 +155,35 @@ class Rotator:
             "rotate_every":      self.rotate_every,
         }
 
-    def handle_429(self, key_id: int, provider: str) -> str:
-        strategy = COOLDOWN_STRATEGY.get(provider, _rolling(60))
-        cooldown_until = strategy()
-        self.store.record_usage(key_id, tokens=0, was_429=True, cooldown_until=cooldown_until)
+    def handle_429(self, key_id: int, provider: str, headers: dict | None = None) -> str:
+        """
+        Compute cooldown_until for a 429 response.
+        Header-derived reset time takes priority; falls back to config-driven strategy.
+        """
+        headers = headers or {}
+        cooldown = extract_cooldown(provider, headers, was_429=True)
+        if cooldown is None:
+            cfg = self.configs.get(provider, {})
+            cooldown = _fallback_from_config(cfg)()
+        self.store.record_usage(key_id, tokens=0, was_429=True, cooldown_until=cooldown)
         self._slot_count[key_id] = self._slot_count.get(key_id, 0) + 1
         self._persist_state_for_key(key_id)
-        return cooldown_until
+        return cooldown
 
-    def handle_success(self, key_id: int, tokens_used: int):
-        self.store.record_usage(key_id, tokens=tokens_used, was_429=False)
+    def handle_success(
+        self,
+        key_id: int,
+        tokens_used: int,
+        headers: dict | None = None,
+        provider: str = "",
+    ):
+        """
+        Record a successful call. If headers indicate quota exhaustion (remaining == 0),
+        set a proactive cooldown so the key is skipped until the window resets.
+        """
+        headers = headers or {}
+        cooldown = extract_cooldown(provider, headers, was_429=False) if provider else None
+        self.store.record_usage(key_id, tokens=tokens_used, was_429=False, cooldown_until=cooldown)
         self._slot_count[key_id] = self._slot_count.get(key_id, 0) + 1
         self._persist_state_for_key(key_id)
 

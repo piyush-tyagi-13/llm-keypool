@@ -17,7 +17,13 @@
       "quota_api": "headers",
       "quota_headers": {
         "remaining_requests": "x-ratelimit-remaining-requests",
-        "remaining_tokens": "x-ratelimit-remaining-tokens"
+        "remaining_tokens": "x-ratelimit-remaining-tokens",
+        "reset_requests": "x-ratelimit-reset-requests",
+        "reset_tokens": "x-ratelimit-reset-tokens"
+      },
+      "cooldown_fallback": {
+        "strategy": "daily_utc_midnight",
+        "note": "header-derived reset used when x-ratelimit-reset-requests is present"
       },
       "default_model": "llama-3.3-70b-versatile",
       "models": [
@@ -35,15 +41,31 @@
       "free_tier": true,
       "limits": {
         "rpm": 30,
+        "rph": 900,
+        "rpd": 14400,
         "tpm": 60000,
+        "tph": 1000000,
         "tokens_per_day": 1000000,
         "max_context_tokens": 8192
       },
       "quota_reset": {
         "rpm_tpm": "rolling_token_bucket",
+        "rph_tph": "rolling_token_bucket",
         "tokens_per_day": "daily_utc_midnight"
       },
-      "quota_api": "none",
+      "quota_api": "headers",
+      "quota_headers": {
+        "remaining_requests_minute": "x-ratelimit-remaining-requests-minute",
+        "remaining_requests_hour":   "x-ratelimit-remaining-requests-hour",
+        "remaining_requests_day":    "x-ratelimit-remaining-requests-day",
+        "remaining_tokens_minute":   "x-ratelimit-remaining-tokens-minute",
+        "remaining_tokens_hour":     "x-ratelimit-remaining-tokens-hour",
+        "remaining_tokens_day":      "x-ratelimit-remaining-tokens-day"
+      },
+      "cooldown_fallback": {
+        "strategy": "daily_utc_midnight",
+        "note": "header remaining counts drive cooldown tier: day->midnight, hour->3600s, minute->60s"
+      },
       "default_model": "llama3.3-70b",
       "models": [
         "qwen-3-235b",
@@ -69,6 +91,9 @@
         "rpm": "rolling"
       },
       "quota_api": "none",
+      "cooldown_fallback": {
+        "strategy": "rolling_65"
+      },
       "default_model": "Meta-Llama-3.3-70B-Instruct",
       "models": [
         "Meta-Llama-3.1-8B-Instruct",
@@ -91,7 +116,15 @@
         "rpm_tpm": "rolling",
         "monthly_token_cap": "first_of_calendar_month"
       },
-      "quota_api": "none",
+      "quota_api": "headers",
+      "quota_headers": {
+        "remaining_requests_minute": "x-ratelimit-remaining-req-minute",
+        "remaining_tokens_minute":   "x-ratelimit-remaining-tokens-minute"
+      },
+      "cooldown_fallback": {
+        "strategy": "rolling_60",
+        "note": "header uses 'req' not 'requests'; no reset timestamp, 60s rolling used"
+      },
       "default_model": "mistral-large-latest",
       "models": [
         "mistral-large-latest",
@@ -125,6 +158,10 @@
           "total_usage": "data.total_usage"
         }
       },
+      "cooldown_fallback": {
+        "strategy": "daily_utc_midnight",
+        "note": "no rate-limit headers observed on live probe; RPD is the binding limit"
+      },
       "default_model": "meta-llama/llama-3.3-70b-instruct:free",
       "models": [
         "meta-llama/llama-3.3-70b-instruct:free",
@@ -149,6 +186,9 @@
         "neurons_per_day": "daily_utc_midnight"
       },
       "quota_api": "none",
+      "cooldown_fallback": {
+        "strategy": "daily_utc_midnight"
+      },
       "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       "default_embedding_model": "@cf/baai/bge-large-en-v1.5",
       "models": {
@@ -180,6 +220,10 @@
         "monthly_call_cap": "first_of_calendar_month"
       },
       "quota_api": "none",
+      "cooldown_fallback": {
+        "strategy": "first_of_calendar_month",
+        "note": "monthly call cap is the binding limit; no headers documented"
+      },
       "default_model": "command-r-plus-08-2024",
       "default_embedding_model": "embed-v4.0",
       "models": {
@@ -210,6 +254,9 @@
         "initial_grant": "one_time_no_reset"
       },
       "quota_api": "none",
+      "cooldown_fallback": {
+        "strategy": "rolling_65"
+      },
       "default_embedding_model": "jina-embeddings-v3",
       "models": [
         "jina-embeddings-v3",
@@ -230,6 +277,9 @@
         "monthly_credits": "first_of_calendar_month"
       },
       "quota_api": "none",
+      "cooldown_fallback": {
+        "strategy": "rolling_120"
+      },
       "default_embedding_model": "BAAI/bge-large-en-v1.5",
       "models": [
         "BAAI/bge-large-en-v1.5",

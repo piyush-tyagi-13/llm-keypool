@@ -1,6 +1,7 @@
 """Cloudflare Workers AI client."""
 import httpx
 from .base import CompletionResult, EmbeddingResult
+from .headers import collect_rl_headers
 
 
 async def complete(key_data: dict, messages: list[dict], **kwargs) -> CompletionResult:
@@ -18,14 +19,23 @@ async def complete(key_data: dict, messages: list[dict], **kwargs) -> Completion
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(url, json=payload, headers=headers)
+        rl_headers = collect_rl_headers(resp.headers)
         if resp.status_code == 429:
-            return CompletionResult(text="", tokens_used=0, was_429=True, error="429 rate limit")
+            return CompletionResult(
+                text="", tokens_used=0, was_429=True,
+                error="429 rate limit", rate_limit_headers=rl_headers,
+            )
         resp.raise_for_status()
         data = resp.json()
         text = data.get("result", {}).get("response", "")
-        return CompletionResult(text=text, tokens_used=0, was_429=False)
+        return CompletionResult(
+            text=text, tokens_used=0, was_429=False, rate_limit_headers=rl_headers,
+        )
     except httpx.HTTPStatusError as e:
-        return CompletionResult(text="", tokens_used=0, was_429=False, error=f"HTTP {e.response.status_code}")
+        return CompletionResult(
+            text="", tokens_used=0, was_429=False,
+            error=f"HTTP {e.response.status_code}",
+        )
     except Exception as e:
         return CompletionResult(text="", tokens_used=0, was_429=False, error=str(e)[:200])
 
@@ -41,13 +51,23 @@ async def embed(key_data: dict, texts: list[str], **kwargs) -> EmbeddingResult:
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(url, json={"text": texts}, headers=headers)
+        rl_headers = collect_rl_headers(resp.headers)
         if resp.status_code == 429:
-            return EmbeddingResult(embeddings=[], tokens_used=0, was_429=True, error="429 rate limit")
+            return EmbeddingResult(
+                embeddings=[], tokens_used=0, was_429=True,
+                error="429 rate limit", rate_limit_headers=rl_headers,
+            )
         resp.raise_for_status()
         data = resp.json()
         embeddings = data.get("result", {}).get("data", [])
-        return EmbeddingResult(embeddings=embeddings, tokens_used=0, was_429=False)
+        return EmbeddingResult(
+            embeddings=embeddings, tokens_used=0,
+            was_429=False, rate_limit_headers=rl_headers,
+        )
     except httpx.HTTPStatusError as e:
-        return EmbeddingResult(embeddings=[], tokens_used=0, was_429=False, error=f"HTTP {e.response.status_code}")
+        return EmbeddingResult(
+            embeddings=[], tokens_used=0, was_429=False,
+            error=f"HTTP {e.response.status_code}",
+        )
     except Exception as e:
         return EmbeddingResult(embeddings=[], tokens_used=0, was_429=False, error=str(e)[:200])

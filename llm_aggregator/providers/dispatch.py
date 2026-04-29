@@ -23,15 +23,13 @@ async def complete(
         result = await _call_complete(key_data, messages, **kwargs)
 
         if result.was_429:
-            rotator.handle_429(key_data["key_id"], key_data["provider"])
+            rotator.handle_429(key_data["key_id"], key_data["provider"], result.rate_limit_headers)
             continue
 
-        rotator.handle_success(key_data["key_id"], result.tokens_used)
-
-        # Provider signals this key has no remaining requests this window
-        if result.remaining_requests is not None and result.remaining_requests == 0:
-            rotator.handle_429(key_data["key_id"], key_data["provider"])
-
+        rotator.handle_success(
+            key_data["key_id"], result.tokens_used,
+            result.rate_limit_headers, key_data["provider"],
+        )
         return result, key_data
 
     return CompletionResult(text="", tokens_used=0, was_429=False, error="max_retries_exceeded"), None
@@ -52,10 +50,13 @@ async def embed(
         result = await _call_embed(key_data, texts, **kwargs)
 
         if result.was_429:
-            rotator.handle_429(key_data["key_id"], key_data["provider"])
+            rotator.handle_429(key_data["key_id"], key_data["provider"], result.rate_limit_headers)
             continue
 
-        rotator.handle_success(key_data["key_id"], result.tokens_used)
+        rotator.handle_success(
+            key_data["key_id"], result.tokens_used,
+            result.rate_limit_headers, key_data["provider"],
+        )
         return result, key_data
 
     return EmbeddingResult(embeddings=[], tokens_used=0, was_429=False, error="max_retries_exceeded"), None
@@ -68,7 +69,10 @@ async def _call_complete(key_data: dict, messages: list[dict], **kwargs) -> Comp
         return await _cohere.complete(key_data, messages, **kwargs)
     if key_data["provider"] == "cloudflare":
         return await _cloudflare.complete(key_data, messages, **kwargs)
-    return CompletionResult(text="", tokens_used=0, was_429=False, error=f"no client for provider '{key_data['provider']}'")
+    return CompletionResult(
+        text="", tokens_used=0, was_429=False,
+        error=f"no client for provider '{key_data['provider']}'",
+    )
 
 
 async def _call_embed(key_data: dict, texts: list[str], **kwargs) -> EmbeddingResult:
@@ -78,4 +82,7 @@ async def _call_embed(key_data: dict, texts: list[str], **kwargs) -> EmbeddingRe
         return await _cohere.embed(key_data, texts, **kwargs)
     if key_data["provider"] == "cloudflare":
         return await _cloudflare.embed(key_data, texts, **kwargs)
-    return EmbeddingResult(embeddings=[], tokens_used=0, was_429=False, error=f"no client for provider '{key_data['provider']}'")
+    return EmbeddingResult(
+        embeddings=[], tokens_used=0, was_429=False,
+        error=f"no client for provider '{key_data['provider']}'",
+    )

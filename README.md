@@ -1,4 +1,4 @@
-# llm-aggregator
+# llm-aggregator 
 
 Free-tier LLM key pool manager. Register API keys from multiple providers once - the aggregator round-robins across them, handles 429 cooldowns, and retries transparently. No paid API needed.
 

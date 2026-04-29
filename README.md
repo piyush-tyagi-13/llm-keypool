@@ -14,15 +14,6 @@ Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 
 ![Add Key tab](docs/screenshots/add_key.jpg)
 
-**TUI — key pool dashboard**
-![TUI Keys tab](docs/screenshots/tui-keys.png)
-
-**TUI — add key form**
-![TUI Add Key tab](docs/screenshots/tui-add-key.png)
-
-**TUI — deactivate confirmation**
-![TUI Confirm dialog](docs/screenshots/tui-confirm.png)
-
 ---
 
 ## What it does

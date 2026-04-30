@@ -73,7 +73,7 @@ llm-keypool add --provider cerebras --key csk_... --model llama-3.3-70b --catego
 llm-keypool status
 
 # Launch TUI
-llm-keypool tui
+llm-keypool gui
 ```
 
 ---
@@ -151,12 +151,12 @@ llm-keypool providers
 
 ---
 
-### `llm-keypool tui`
+### `llm-keypool gui`
 
 Launch the Textual TUI. Requires `[gui]` extra.
 
 ```bash
-llm-keypool tui
+llm-keypool gui
 ```
 
 Features: tabular key view, inline deactivate/clear-cooldown, add key form.
@@ -195,7 +195,7 @@ llm = AggregatorChat(
 response = llm.invoke("What is the capital of France?")
 print(response.content)
 print(response.response_metadata)
-# {"provider": "groq", "model": "llama-3.3-70b-versatile", "tokens_used": 42}
+# {"provider": "groq", "model": "llama-3.3-70b-versatile", "model_name": "llama-3.3-70b-versatile", "tokens_used": 42}
 ```
 
 Async:
@@ -214,6 +214,36 @@ result = chain.invoke({"question": "What is Python?"})
 ```
 
 LangSmith tracing works automatically if `LANGCHAIN_TRACING_V2` and `LANGCHAIN_API_KEY` are set.
+
+---
+
+## LangChain embeddings integration
+
+`AggregatorEmbeddings` is a `langchain_core.embeddings.Embeddings` drop-in backed by the embedding category keys (Jina, HuggingFace, etc.):
+
+```python
+from llm_keypool import AggregatorEmbeddings
+
+embeddings = AggregatorEmbeddings(
+    category="embedding",
+    rotate_every=5,
+)
+
+# Single query
+vector = embeddings.embed_query("What is Python?")
+
+# Batch documents
+vectors = embeddings.embed_documents(["doc one", "doc two", "doc three"])
+```
+
+Works as a drop-in for any LangChain vector store:
+
+```python
+from langchain_community.vectorstores import FAISS
+
+db = FAISS.from_texts(["hello world", "foo bar"], embedding=embeddings)
+results = db.similarity_search("hello")
+```
 
 ---
 
@@ -273,11 +303,11 @@ Header parsing was verified against live API responses. Providers without header
 ```
 llm-keypool/
 - llm_keypool/
-  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, tui)
+  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, gui)
   - tui.py               # Textual TUI
   - key_store.py         # SQLite persistence (~/.llm-keypool/keys.db)
   - rotator.py           # round-robin rotation + cooldown logic
-  - langchain_wrapper.py # AggregatorChat (BaseChatModel)
+  - langchain_wrapper.py # AggregatorChat (BaseChatModel) + AggregatorEmbeddings
   - providers/
     - dispatch.py        # retry loop, 429 handling, provider routing
     - headers.py         # rate-limit header parsing + per-provider cooldown extraction
@@ -286,6 +316,12 @@ llm-keypool/
     - cloudflare.py
   - config/
     - providers.json     # provider metadata, limits, models, reset schedules
+- tests/
+  - test_key_store.py    # KeyStore CRUD, cooldown, usage, migration
+  - test_rotator.py      # rotation, 429 handling, cooldown strategies
+  - test_cli.py          # CLI commands via Typer test runner
+  - test_langchain_wrapper.py  # AggregatorChat + AggregatorEmbeddings mocks
+- stress_test.py         # live rotation stress tester (real API calls)
 - PROVIDER_GUIDE.md      # signup URLs and rate limits per provider
 - TODO.md                # known limitations and planned improvements
 ```

@@ -295,3 +295,11 @@ llm-keypool/
 - PROVIDER_GUIDE.md      # signup URLs and rate limits per provider
 - TODO.md                # known limitations and planned improvements
 ```
+
+---
+
+## Roadmap
+
+**OpenClaw AgentSkill** - expose llm-keypool as an [OpenClaw](https://github.com/openclaw/openclaw) AgentSkill so OpenClaw's autonomous agent loop can call the key pool directly without needing a LangChain wrapper. OpenClaw skills register as callable tools with typed inputs - `keypool_complete(messages, category)` would drop in as a first-class skill, giving OpenClaw transparent key rotation and free-tier quota management across its LLM calls.
+
+**Hermes Agent tool** - register llm-keypool as a callable tool inside [Hermes Agent](https://github.com/nousresearch/hermes-agent) (Nous Research). Hermes's `delegate_task` spawns isolated subagents - each subagent hitting llm-keypool independently means parallel workstreams automatically spread load across the key pool without any extra coordination. Target: `keypool_complete` registered in Hermes's tool registry, with `current_key()` surfaced as a `keypool_status` tool for observability during delegation chains.

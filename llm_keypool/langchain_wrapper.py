@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -91,6 +92,34 @@ class AggregatorChat(BaseChatModel):
     def _identifying_params(self) -> dict:
         return {"model": f"keypool/{self.category}", "category": self.category}
 
+    def pool_status(self) -> list[dict]:
+        """
+        Return current quota state for all active keys in this category.
+        Does not make any API call.
+
+        Each entry:
+            provider, model, key_id, requests_today, tokens_used_today,
+            cooldown_until, is_available
+        """
+        from .key_store import KeyStore
+        store = KeyStore()
+        now = datetime.now(timezone.utc).isoformat()
+        keys = [k for k in store.get_all_keys() if k["category"] == self.category and k["is_active"]]
+        result = []
+        for k in keys:
+            cd = k.get("cooldown_until")
+            available = not cd or cd < now
+            result.append({
+                "key_id":           k["id"],
+                "provider":         k["provider"],
+                "model":            k["model"] or "(provider default)",
+                "requests_today":   k["requests_today"],
+                "tokens_used_today": k["tokens_used_today"],
+                "cooldown_until":   cd,
+                "is_available":     available,
+            })
+        return result
+
     def _generate(
         self,
         messages: list[BaseMessage],
@@ -132,10 +161,14 @@ class AggregatorChat(BaseChatModel):
                 "total_tokens": tokens,
             },
             response_metadata={
-                "provider": key_data["provider"],
-                "model": model_name,
-                "model_name": model_name,
-                "tokens_used": tokens,
+                "provider":           key_data["provider"],
+                "model":              model_name,
+                "model_name":         model_name,
+                "tokens_used":        tokens,
+                "requests_today":     key_data.get("requests_today", 0) + 1,
+                "tokens_used_today":  key_data.get("tokens_used_today", 0) + tokens,
+                "remaining_requests": result.remaining_requests,
+                "key_id":             key_data["key_id"],
             },
         )
         return ChatResult(

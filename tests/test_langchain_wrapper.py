@@ -19,8 +19,11 @@ from llm_keypool.langchain_wrapper import AggregatorChat  # noqa: E402
 
 def _make_complete_result(text="hello", tokens=42, provider="groq", model="llama-3.3-70b"):
     from types import SimpleNamespace
-    result = SimpleNamespace(text=text, tokens_used=tokens, error=None)
-    key_data = {"provider": provider, "model": model}
+    result = SimpleNamespace(text=text, tokens_used=tokens, error=None, remaining_requests=100)
+    key_data = {
+        "provider": provider, "model": model, "key_id": 1,
+        "requests_today": 5, "tokens_used_today": 200,
+    }
     return result, key_data
 
 
@@ -117,3 +120,37 @@ class TestAggregatorChat:
         assert chat.max_tokens == 4096
         assert chat.temperature == 0.7
         assert chat.rotate_every == 5
+
+    @patch("llm_keypool.providers.dispatch.complete", new_callable=AsyncMock)
+    @patch("llm_keypool.langchain_wrapper._build_rotator")
+    def test_response_metadata_includes_quota_fields(self, mock_rotator, mock_complete):
+        mock_complete.return_value = _make_complete_result(tokens=50, provider="groq")
+        mock_rotator.return_value = MagicMock()
+
+        chat = AggregatorChat()
+        result = chat._generate([HumanMessage(content="hello")])
+
+        meta = result.generations[0].message.response_metadata
+        assert "requests_today" in meta
+        assert "tokens_used_today" in meta
+        assert "remaining_requests" in meta
+        assert "key_id" in meta
+        assert meta["remaining_requests"] == 100
+        assert meta["key_id"] == 1
+
+    def test_pool_status_returns_list(self, tmp_path, monkeypatch):
+        import os
+        monkeypatch.setenv("LLM_KEYPOOL_DB", str(tmp_path / "ps_test.db"))
+        from llm_keypool.key_store import KeyStore
+        store = KeyStore()
+        store.register_key("groq", "key1", "general_purpose", "llama-3.3-70b-versatile", {})
+
+        chat = AggregatorChat(category="general_purpose")
+        status = chat.pool_status()
+
+        assert len(status) == 1
+        assert status[0]["provider"] == "groq"
+        assert "requests_today" in status[0]
+        assert "tokens_used_today" in status[0]
+        assert "is_available" in status[0]
+        assert status[0]["is_available"] is True

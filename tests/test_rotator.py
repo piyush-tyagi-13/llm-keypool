@@ -39,15 +39,6 @@ PROVIDER_CONFIGS = {
         "default_model": "command-r-plus-08-2024",
         "models": ["command-r-plus-08-2024"],
     },
-    "jina": {
-        "category": ["embedding"],
-        "base_url": "https://api.jina.ai/v1",
-        "openai_compatible": True,
-        "limits": {"rpm": 100},
-        "cooldown_fallback": {"strategy": "rolling_65"},
-        "default_embedding_model": "jina-embeddings-v3",
-        "models": ["jina-embeddings-v3"],
-    },
 }
 
 
@@ -139,12 +130,6 @@ def test_get_best_key_uses_provider_default_when_no_model(store, rotator):
     key = rotator.get_best_key("general_purpose")
     assert key["model"] == "llama-3.3-70b-versatile"
 
-
-def test_get_best_key_embedding_category(store, rotator):
-    _add_key(store, "jina", "jina_key", category="embedding")
-    key = rotator.get_best_key("embedding")
-    assert key is not None
-    assert key["provider"] == "jina"
 
 
 def test_get_best_key_skips_inactive(store, rotator):

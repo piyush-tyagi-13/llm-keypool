@@ -164,14 +164,13 @@ def test_update_key_api_key(store):
 # --- category filtering ---
 
 def test_active_keys_category_filter(store):
-    store.register_key("groq", "key_gp", "general_purpose", None, {})
-    store.register_key("jina", "key_emb", "embedding", None, {})
+    store.register_key("groq", "key1", "general_purpose", None, {})
+    store.register_key("mistral", "key2", "general_purpose", None, {})
 
     gp = store.get_active_keys("general_purpose")
-    emb = store.get_active_keys("embedding")
-
-    assert len(gp) == 1 and gp[0]["provider"] == "groq"
-    assert len(emb) == 1 and emb[0]["provider"] == "jina"
+    assert len(gp) == 2
+    providers = {k["provider"] for k in gp}
+    assert providers == {"groq", "mistral"}
 
 
 # --- rotation state ---

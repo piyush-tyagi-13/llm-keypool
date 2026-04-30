@@ -176,7 +176,7 @@ class LLMKeyPoolApp(App):
                     with Horizontal(classes="form-row"):
                         yield Label("Category", classes="form-label")
                         yield Select(
-                            [("general_purpose", "general_purpose"), ("embedding", "embedding")],
+                            [("general_purpose", "general_purpose")],
                             id="inp-category",
                             classes="form-input",
                             value="general_purpose",

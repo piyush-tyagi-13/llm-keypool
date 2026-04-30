@@ -71,7 +71,7 @@ def status():
 def add(
     provider: str = typer.Option(..., "--provider", "-p", help="Provider name (groq, cerebras, mistral, ...)"),
     key: str = typer.Option(..., "--key", "-k", help="API key string"),
-    category: str = typer.Option("general_purpose", "--category", "-c", help="Category: general_purpose or embedding"),
+    category: str = typer.Option("general_purpose", "--category", "-c", help="Key category (default: general_purpose)"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Model name (uses provider default if omitted)"),
 ):
     """Register a new API key for a provider."""
@@ -146,7 +146,7 @@ def providers():
 
     for name, cfg in sorted(configs.items()):
         cats    = ", ".join(cfg.get("category", []))
-        default = cfg.get("default_model") or cfg.get("default_embedding_model", "-")
+        default = cfg.get("default_model", "-")
         compat  = "[green]yes[/green]" if cfg.get("openai_compatible") else "[dim]no[/dim]"
         table.add_row(name, cats, default or "[dim]-[/dim]", compat)
 

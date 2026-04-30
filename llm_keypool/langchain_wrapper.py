@@ -1,22 +1,16 @@
 """
-LangChain-compatible wrappers for llm-keypool.
+LangChain-compatible wrapper for llm-keypool.
 
 Drop into mdcore's llm_layer.py as a new backend:
 
-    from llm_keypool.langchain_wrapper import AggregatorChat, AggregatorEmbeddings
+    from llm_keypool import AggregatorChat
 
     # in _build_llm():
     elif backend == "aggregator":
         return AggregatorChat()
 
-    # in _build_embeddings():
-    elif backend == "aggregator":
-        return AggregatorEmbeddings()
-
 Config (~/.mdcore/config.yaml):
     llm:
-      backend: aggregator
-    embeddings:
       backend: aggregator
 """
 
@@ -27,7 +21,6 @@ import json
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
@@ -157,50 +150,3 @@ class AggregatorChat(BaseChatModel):
                 },
             },
         )
-
-
-class AggregatorEmbeddings(Embeddings):
-    """
-    LangChain Embeddings backed by llm-keypool.
-
-    Handles key selection and 429 cooldown retries. All registered
-    embedding keys MUST use the same model - switching models mid-index
-    breaks vector space consistency. Rotation across different models
-    is not supported.
-    """
-
-    category: str = "embedding"
-    rotate_every: int = 5
-
-    _rotator: Any = None
-
-    def __init__(self, **kwargs):
-        self.category = kwargs.get("category", "embedding")
-        self.rotate_every = kwargs.get("rotate_every", 5)
-        self._rotator = None
-
-    def _get_rotator(self):
-        if self._rotator is None:
-            self._rotator = _build_rotator(self.rotate_every)
-        return self._rotator
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return _run_async(self._aembed(texts))
-
-    def embed_query(self, text: str) -> list[float]:
-        results = _run_async(self._aembed([text]))
-        return results[0]
-
-    async def _aembed(self, texts: list[str]) -> list[list[float]]:
-        from .providers.dispatch import embed as _embed
-
-        result, key_data = await _embed(
-            self._get_rotator(),
-            category=self.category,
-            texts=texts,
-        )
-
-        if result.error:
-            raise RuntimeError(f"llm-keypool embed error: {result.error}")
-
-        return result.embeddings

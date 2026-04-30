@@ -4,6 +4,7 @@ tracks which provider serves each request, and reports rotation behaviour.
 
 Usage:
     uv run python stress_test.py [--requests N] [--rotate-every N]
+    uv run python stress_test.py --simulate-429-on 3 7   # fake 429 on req 3 and 7
 """
 from __future__ import annotations
 
@@ -13,10 +14,12 @@ import json
 import time
 from collections import defaultdict
 from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
 from llm_keypool.key_store import KeyStore
 from llm_keypool.rotator import Rotator
 from llm_keypool.providers.dispatch import complete
+from llm_keypool.providers.base import CompletionResult
 
 PROMPT = [{"role": "user", "content": "Reply in exactly 5 words."}]
 
@@ -30,7 +33,7 @@ def log(tag: str, msg: str):
     print(f"[{ts()}] {tag:<{width}} {msg}")
 
 
-async def run(n_requests: int, rotate_every: int):
+async def run(n_requests: int, rotate_every: int, simulate_429_on: set[int] = None):
     store = KeyStore()
     with open("llm_keypool/config/providers.json") as f:
         configs = json.load(f)["providers"]
@@ -42,7 +45,11 @@ async def run(n_requests: int, rotate_every: int):
         print("No active general_purpose keys. Run: llm-keypool add --provider <p> --key <k>")
         return
 
+    simulate_429_on = simulate_429_on or set()
+
     print(f"\nStress test: {n_requests} requests, rotate_every={rotate_every}")
+    if simulate_429_on:
+        print(f"Simulating 429 on requests: {sorted(simulate_429_on)}")
     print(f"Active keys: {[k['provider'] for k in active]}")
     print("-" * 70)
 
@@ -70,6 +77,19 @@ async def run(n_requests: int, rotate_every: int):
 
         t0 = time.monotonic()
         try:
+            if i in simulate_429_on:
+                # Inject a fake 429 - dispatch still picks key and handles it
+                fake_429 = CompletionResult(
+                    text="", tokens_used=0, was_429=True,
+                    error="429 simulated", rate_limit_headers={},
+                )
+                rotator.handle_429(key_data["key_id"], key_data["provider"])
+                elapsed = time.monotonic() - t0
+                log("429-SIM", f"req={i:3d} {provider:12}{slot} forced 429 -> cooldown set")
+                errors += 1
+                prev_provider = None  # force ROTATE log on next req
+                continue
+
             result, _ = await complete(
                 rotator,
                 category="general_purpose",
@@ -116,8 +136,10 @@ def main():
     parser.add_argument("--requests", type=int, default=20)
     parser.add_argument("--rotate-every", type=int, default=3,
                         help="Requests per key before rotating (default 3)")
+    parser.add_argument("--simulate-429-on", type=int, nargs="+", metavar="N",
+                        help="Request numbers to simulate 429 on (e.g. --simulate-429-on 3 7)")
     args = parser.parse_args()
-    asyncio.run(run(args.requests, args.rotate_every))
+    asyncio.run(run(args.requests, args.rotate_every, set(args.simulate_429_on or [])))
 
 
 if __name__ == "__main__":

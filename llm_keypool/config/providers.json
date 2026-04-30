@@ -174,7 +174,7 @@
       ]
     },
     "cloudflare": {
-      "category": ["general_purpose", "embedding"],
+      "category": ["general_purpose"],
       "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run",
       "openai_compatible": false,
       "requires_extra": ["account_id"],
@@ -190,30 +190,20 @@
         "strategy": "daily_utc_midnight"
       },
       "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      "default_embedding_model": "@cf/baai/bge-large-en-v1.5",
-      "models": {
-        "general_purpose": [
-          "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-          "@cf/meta/llama-3.1-8b-instruct",
-          "@cf/mistral/mistral-7b-instruct-v0.2-lora"
-        ],
-        "embedding": [
-          "@cf/baai/bge-large-en-v1.5",
-          "@cf/baai/bge-base-en-v1.5"
-        ]
-      }
+      "models": [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.2-lora"
+      ]
     },
     "cohere": {
-      "category": ["general_purpose", "embedding"],
+      "category": ["general_purpose"],
       "base_url": "https://api.cohere.com/v2",
       "openai_compatible": false,
       "free_tier": true,
       "limits": {
         "calls_per_month": 1000,
-        "rpm_chat": 20,
-        "rpm_embed_text": 100,
-        "rpm_embed_image": 5,
-        "rpm_rerank": 10
+        "rpm_chat": 20
       },
       "quota_reset": {
         "rpm": "rolling",
@@ -225,68 +215,10 @@
         "note": "monthly call cap is the binding limit; no headers documented"
       },
       "default_model": "command-r-plus-08-2024",
-      "default_embedding_model": "embed-v4.0",
-      "models": {
-        "general_purpose": [
-          "command-a-03-2025",
-          "command-r-plus-08-2024",
-          "command-r-08-2024"
-        ],
-        "embedding": [
-          "embed-v4.0",
-          "embed-english-v3.0"
-        ]
-      }
-    },
-    "jina": {
-      "category": ["embedding"],
-      "base_url": "https://api.jina.ai/v1",
-      "openai_compatible": true,
-      "free_tier": true,
-      "limits": {
-        "initial_token_grant": 1000000,
-        "rpm": 100,
-        "tpm": 100000,
-        "concurrent_requests": 2
-      },
-      "quota_reset": {
-        "rpm_tpm": "rolling",
-        "initial_grant": "one_time_no_reset"
-      },
-      "quota_api": "none",
-      "cooldown_fallback": {
-        "strategy": "rolling_65"
-      },
-      "default_embedding_model": "jina-embeddings-v3",
       "models": [
-        "jina-embeddings-v3",
-        "jina-colbert-v2",
-        "jina-clip-v2"
-      ]
-    },
-    "huggingface": {
-      "category": ["embedding"],
-      "base_url": "https://api-inference.huggingface.co/v1",
-      "openai_compatible": true,
-      "free_tier": true,
-      "limits": {
-        "monthly_credits": null,
-        "rate": "best_effort"
-      },
-      "quota_reset": {
-        "monthly_credits": "first_of_calendar_month"
-      },
-      "quota_api": "none",
-      "cooldown_fallback": {
-        "strategy": "rolling_120"
-      },
-      "default_embedding_model": "BAAI/bge-large-en-v1.5",
-      "models": [
-        "BAAI/bge-large-en-v1.5",
-        "BAAI/bge-m3",
-        "sentence-transformers/all-MiniLM-L6-v2",
-        "sentence-transformers/all-mpnet-base-v2",
-        "thenlper/gte-large"
+        "command-a-03-2025",
+        "command-r-plus-08-2024",
+        "command-r-08-2024"
       ]
     }
   }

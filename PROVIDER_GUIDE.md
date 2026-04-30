@@ -15,18 +15,11 @@
 
 ---
 
-## Category Definitions
+## Providers
 
-| Category | Description |
-|---|---|
-| `general_purpose` | Chat, completion, instruction-following models |
-| `embedding` | Text embedding / vector models |
-
-Some providers (Google, Cohere, Cloudflare) appear in both categories.
+All providers support `general_purpose` category (chat/completion models) only. Embedding support is out of scope for this project.
 
 ---
-
-## General Purpose Providers
 
 ### 1. Groq
 
@@ -89,12 +82,10 @@ Some providers (Google, Cohere, Cloudflare) appear in both categories.
 
 **Free models:**
 
-| Model ID | Category | Notes |
-|---|---|---|
-| `gemini-2.5-flash` | general_purpose | Best free model |
-| `gemini-2.0-flash` | general_purpose | Stable alternative |
-| `text-embedding-005` | embedding | 768 dimensions, free |
-| `gemini-embedding-exp-03-07` | embedding | Experimental, higher dim |
+| Model ID | Notes |
+|---|---|
+| `gemini-2.5-flash` | Best free model |
+| `gemini-2.0-flash` | Stable alternative |
 
 **Quota tracking:**
 
@@ -311,8 +302,6 @@ Some providers (Google, Cohere, Cloudflare) appear in both categories.
 | `@cf/meta/llama-3.1-8b-instruct` | Fast |
 | `@cf/mistral/mistral-7b-instruct-v0.2-lora` | Mistral |
 | `@cf/qwen/qwen1.5-14b-chat-awq` | Qwen |
-| `@cf/baai/bge-large-en-v1.5` | embedding |
-| `@cf/baai/bge-base-en-v1.5` | embedding, smaller |
 
 **Quota tracking:**
 
@@ -342,21 +331,16 @@ Some providers (Google, Cohere, Cloudflare) appear in both categories.
 | Endpoint | Per-minute limit | Monthly cap |
 |---|---|---|
 | `/v2/chat` | 20 RPM | Shared 1,000 calls/month |
-| `/v2/embed` (text) | 100 RPM | Shared 1,000 calls/month |
-| `/v2/embed` (image) | 5 RPM | Shared 1,000 calls/month |
-| `/v2/rerank` | 10 RPM | Shared 1,000 calls/month |
 
-> All endpoints share the 1,000 call/month pool.
+> All Cohere endpoints share the 1,000 call/month pool.
 
 **Free models:**
 
-| Model ID | Category | Notes |
-|---|---|---|
-| `command-a-03-2025` | general_purpose | Latest Command A |
-| `command-r-plus-08-2024` | general_purpose | Command R+ |
-| `command-r-08-2024` | general_purpose | Smaller |
-| `embed-v4.0` | embedding | Best embedding model |
-| `embed-english-v3.0` | embedding | English-only, lighter |
+| Model ID | Notes |
+|---|---|
+| `command-a-03-2025` | Latest Command A |
+| `command-r-plus-08-2024` | Command R+ |
+| `command-r-08-2024` | Smaller |
 
 **Quota tracking:**
 
@@ -371,110 +355,18 @@ Some providers (Google, Cohere, Cloudflare) appear in both categories.
 | RPM | Rolling 60-second window |
 | Monthly call cap (1,000) | 1st of each calendar month |
 
----
-
-## Embedding-Only Providers
-
-### 9. Jina AI
-
-- **Signup:** https://jina.ai/embeddings
-- **No credit card required:** Yes (auto-generates key on page)
-- **Base URL:** `https://api.jina.ai/v1`
-- **Auth header:** `Authorization: Bearer <API_KEY>`
-- **OpenAI-compatible:** Yes (`/v1/embeddings` endpoint)
-
-**Free tier limits:**
-
-| Metric | Limit |
-|---|---|
-| One-time initial tokens | 1,000,000 tokens |
-| RPM (free ongoing) | 100 |
-| TPM (free ongoing) | 100,000 |
-| Concurrent requests | 2 |
-
-> After 1M initial tokens consumed, rate-limited free access continues at 100 RPM/100K TPM.
-
-**Free models:**
-
-| Model ID | Dimensions | Notes |
-|---|---|---|
-| `jina-embeddings-v3` | 1024 | Multilingual, best |
-| `jina-colbert-v2` | - | Late interaction, retrieval-optimized |
-| `jina-clip-v2` | 1024 | Text + image |
-
-> Same key works for Jina Reader, Reranker, and Classifier APIs - tokens shared.
-
-**Quota tracking:**
-
-- Dashboard: "API Key & Billing" tab shows usage history + remaining tokens
-- No programmatic quota API endpoint
-- **Strategy:** Local token counter + 429 signal; initial 1M tokens tracked from first use
-
-**Reset schedule:**
-
-| Window | Resets |
-|---|---|
-| Initial 1M token grant | One-time, does not reset |
-| RPM/TPM ongoing limits | Rolling windows |
-
----
-
-### 10. Hugging Face (Serverless Inference)
-
-- **Signup:** https://huggingface.co
-- **No credit card required:** Yes
-- **Base URL:** `https://api-inference.huggingface.co/models/<model-id>`
-- **Alt Base URL (Inference Providers):** `https://router.huggingface.co`
-- **Auth header:** `Authorization: Bearer <HF_TOKEN>`
-- **OpenAI-compatible:** Partial (via `https://api-inference.huggingface.co/v1/`)
-
-**Free tier limits:**
-
-| Metric | Limit |
-|---|---|
-| Monthly credits | Undisclosed (modest, shared across providers) |
-| Rate limit | ~few hundred requests/hour |
-
-> Exact limit varies by model and load. Free tier is best-effort.
-
-**Free embedding models:**
-
-| Model ID | Dimensions | Notes |
-|---|---|---|
-| `BAAI/bge-large-en-v1.5` | 1024 | Strong English |
-| `BAAI/bge-m3` | 1024 | Multilingual |
-| `sentence-transformers/all-MiniLM-L6-v2` | 384 | Lightweight |
-| `sentence-transformers/all-mpnet-base-v2` | 768 | Good quality |
-| `thenlper/gte-large` | 1024 | Strong MTEB |
-
-**Quota tracking:**
-
-- No programmatic quota API
-- Dashboard: https://huggingface.co/settings/billing
-- **Strategy:** 429 signal only; treat as best-effort fallback provider
-
-**Reset schedule:**
-
-| Window | Resets |
-|---|---|
-| Monthly credits | 1st of each calendar month |
-
----
-
 ## Provider Summary Table
 
-| Provider | Category | Free? | Monthly Reset | Daily Reset | Quota API | OpenAI-Compat |
-|---|---|---|---|---|---|---|
-| Groq | general_purpose | Yes | No | Yes (RPD) | Headers only | Yes |
-| Google AI Studio | both | Yes | No | Yes (RPD) | Headers (429) | Yes |
-| Cerebras | general_purpose | Yes | No | Yes (1M tok) | No | Yes |
-| SambaNova | general_purpose | Yes | No | No (RPM only) | No | Yes |
-| Mistral | general_purpose | Yes | Yes (1B tok) | No | No | Yes |
-| OpenRouter | general_purpose | Yes | No | Yes (200 req) | Yes (`/api/v1/credits`) | Yes |
-| Cloudflare | both | Yes | No | Yes (10K neurons) | No | Partial |
-| Cohere | both | Yes | Yes (1K calls) | No | No | No |
-| Jina AI | embedding | Yes | No (one-time 1M) | No | No | Yes |
-| Hugging Face | embedding | Yes (best-effort) | Yes | No | No | Partial |
+| Provider | Free? | Monthly Reset | Daily Reset | Quota API | OpenAI-Compat |
+|---|---|---|---|---|---|
+| Groq | Yes | No | Yes (RPD) | Headers only | Yes |
+| Google AI Studio | Yes | No | Yes (RPD) | Headers (429) | Yes |
+| Cerebras | Yes | No | Yes (1M tok) | No | Yes |
+| SambaNova | Yes | No | No (RPM only) | No | Yes |
+| Mistral | Yes | Yes (1B tok) | No | No | Yes |
+| OpenRouter | Yes | No | Yes (200 req) | Yes (`/api/v1/credits`) | Yes |
+| Cloudflare | Yes | No | Yes (10K neurons) | No | Partial |
+| Cohere | Yes | Yes (1K calls) | No | No | No |
 
 ---
 
@@ -646,7 +538,7 @@ Below is the data this guide generates into `providers.json`. Edit reset cadence
       ]
     },
     "cloudflare": {
-      "category": ["general_purpose", "embedding"],
+      "category": ["general_purpose"],
       "base_url": "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run",
       "openai_compatible": false,
       "requires_account_id": true,
@@ -659,30 +551,20 @@ Below is the data this guide generates into `providers.json`. Edit reset cadence
       },
       "quota_api": "none",
       "default_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      "default_embedding_model": "@cf/baai/bge-large-en-v1.5",
-      "models": {
-        "general_purpose": [
-          "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-          "@cf/meta/llama-3.1-8b-instruct",
-          "@cf/mistral/mistral-7b-instruct-v0.2-lora"
-        ],
-        "embedding": [
-          "@cf/baai/bge-large-en-v1.5",
-          "@cf/baai/bge-base-en-v1.5"
-        ]
-      }
+      "models": [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/meta/llama-3.1-8b-instruct",
+        "@cf/mistral/mistral-7b-instruct-v0.2-lora"
+      ]
     },
     "cohere": {
-      "category": ["general_purpose", "embedding"],
+      "category": ["general_purpose"],
       "base_url": "https://api.cohere.com/v2",
       "openai_compatible": false,
       "free_tier": true,
       "limits": {
         "calls_per_month": 1000,
-        "rpm_chat": 20,
-        "rpm_embed_text": 100,
-        "rpm_embed_image": 5,
-        "rpm_rerank": 10
+        "rpm_chat": 20
       },
       "quota_reset": {
         "rpm": "rolling",
@@ -690,62 +572,10 @@ Below is the data this guide generates into `providers.json`. Edit reset cadence
       },
       "quota_api": "none",
       "default_model": "command-r-plus-08-2024",
-      "default_embedding_model": "embed-v4.0",
-      "models": {
-        "general_purpose": [
-          "command-a-03-2025",
-          "command-r-plus-08-2024",
-          "command-r-08-2024"
-        ],
-        "embedding": [
-          "embed-v4.0",
-          "embed-english-v3.0"
-        ]
-      }
-    },
-    "jina": {
-      "category": ["embedding"],
-      "base_url": "https://api.jina.ai/v1",
-      "openai_compatible": true,
-      "free_tier": true,
-      "limits": {
-        "initial_token_grant": 1000000,
-        "rpm": 100,
-        "tpm": 100000,
-        "concurrent_requests": 2
-      },
-      "quota_reset": {
-        "rpm_tpm": "rolling",
-        "initial_grant": "one_time_no_reset"
-      },
-      "quota_api": "none",
-      "default_embedding_model": "jina-embeddings-v3",
       "models": [
-        "jina-embeddings-v3",
-        "jina-colbert-v2",
-        "jina-clip-v2"
-      ]
-    },
-    "huggingface": {
-      "category": ["embedding"],
-      "base_url": "https://api-inference.huggingface.co/v1",
-      "openai_compatible": true,
-      "free_tier": true,
-      "limits": {
-        "monthly_credits": "undisclosed",
-        "rate": "best_effort"
-      },
-      "quota_reset": {
-        "monthly_credits": "first_of_calendar_month"
-      },
-      "quota_api": "none",
-      "default_embedding_model": "BAAI/bge-large-en-v1.5",
-      "models": [
-        "BAAI/bge-large-en-v1.5",
-        "BAAI/bge-m3",
-        "sentence-transformers/all-MiniLM-L6-v2",
-        "sentence-transformers/all-mpnet-base-v2",
-        "thenlper/gte-large"
+        "command-a-03-2025",
+        "command-r-plus-08-2024",
+        "command-r-08-2024"
       ]
     }
   }
@@ -764,8 +594,6 @@ Below is the data this guide generates into `providers.json`. Edit reset cadence
 - [ ] OpenRouter - openrouter.ai - Keys section
 - [ ] Cloudflare - dash.cloudflare.com - Workers AI - also note your Account ID
 - [ ] Cohere - dashboard.cohere.com - API Keys (get Trial key)
-- [ ] Jina - jina.ai/embeddings - auto-generated on page load
-- [ ] Hugging Face - huggingface.co/settings/tokens - create token with Inference scope
 
 ---
 

@@ -183,7 +183,7 @@ Full provider details and rate limits: [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md)
 `AggregatorChat` is a `BaseChatModel` drop-in:
 
 ```python
-from llm_keypool import AggregatorChat
+from llm_keypool import AggregatorChat  # only chat models - no embedding support
 
 llm = AggregatorChat(
     category="general_purpose",
@@ -214,35 +214,6 @@ result = chain.invoke({"question": "What is Python?"})
 ```
 
 LangSmith tracing works automatically if `LANGCHAIN_TRACING_V2` and `LANGCHAIN_API_KEY` are set.
-
----
-
-## LangChain embeddings integration
-
-`AggregatorEmbeddings` is a `langchain_core.embeddings.Embeddings` drop-in for embedding category keys (Jina, HuggingFace, etc.).
-
-> **Constraint:** All registered embedding keys must use the same model. Switching models mid-index corrupts the vector space - vectors from different models are not comparable. Register multiple keys of the same provider/model for rate-limit fallback only.
-
-```python
-from llm_keypool import AggregatorEmbeddings
-
-embeddings = AggregatorEmbeddings(category="embedding")
-
-# Single query
-vector = embeddings.embed_query("What is Python?")
-
-# Batch documents
-vectors = embeddings.embed_documents(["doc one", "doc two", "doc three"])
-```
-
-Works as a drop-in for any LangChain vector store:
-
-```python
-from langchain_community.vectorstores import FAISS
-
-db = FAISS.from_texts(["hello world", "foo bar"], embedding=embeddings)
-results = db.similarity_search("hello")
-```
 
 ---
 
@@ -306,7 +277,7 @@ llm-keypool/
   - tui.py               # Textual TUI
   - key_store.py         # SQLite persistence (~/.llm-keypool/keys.db)
   - rotator.py           # round-robin rotation + cooldown logic
-  - langchain_wrapper.py # AggregatorChat (BaseChatModel) + AggregatorEmbeddings
+  - langchain_wrapper.py # AggregatorChat (BaseChatModel)
   - providers/
     - dispatch.py        # retry loop, 429 handling, provider routing
     - headers.py         # rate-limit header parsing + per-provider cooldown extraction
@@ -319,7 +290,7 @@ llm-keypool/
   - test_key_store.py    # KeyStore CRUD, cooldown, usage, migration
   - test_rotator.py      # rotation, 429 handling, cooldown strategies
   - test_cli.py          # CLI commands via Typer test runner
-  - test_langchain_wrapper.py  # AggregatorChat + AggregatorEmbeddings mocks
+  - test_langchain_wrapper.py  # AggregatorChat mocks
 - stress_test.py         # live rotation stress tester (real API calls)
 - PROVIDER_GUIDE.md      # signup URLs and rate limits per provider
 - TODO.md                # known limitations and planned improvements

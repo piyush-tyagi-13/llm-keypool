@@ -1,4 +1,4 @@
-"""Tests for AggregatorChat and AggregatorEmbeddings - mock-based."""
+"""Tests for AggregatorChat - mock-based."""
 from __future__ import annotations
 
 import os
@@ -12,29 +12,21 @@ from langchain_core.messages import HumanMessage, SystemMessage
 _tmp_dir = tempfile.mkdtemp()
 os.environ["LLM_KEYPOOL_DB"] = str(Path(_tmp_dir) / "wrapper_test.db")
 
-from llm_keypool.langchain_wrapper import AggregatorChat, AggregatorEmbeddings  # noqa: E402
+from llm_keypool.langchain_wrapper import AggregatorChat  # noqa: E402
 
 
 # --- helpers ---
 
 def _make_complete_result(text="hello", tokens=42, provider="groq", model="llama-3.3-70b"):
     from types import SimpleNamespace
-    result = SimpleNamespace(text=text, tokens_used=tokens, error=None, embeddings=None)
-    key_data = {"provider": provider, "model": model}
-    return result, key_data
-
-
-def _make_embed_result(embeddings=None, provider="jina", model="jina-embeddings-v3"):
-    from types import SimpleNamespace
-    embs = embeddings or [[0.1, 0.2, 0.3]]
-    result = SimpleNamespace(embeddings=embs, tokens_used=10, error=None, text=None)
+    result = SimpleNamespace(text=text, tokens_used=tokens, error=None)
     key_data = {"provider": provider, "model": model}
     return result, key_data
 
 
 def _make_error_result(error="quota exceeded"):
     from types import SimpleNamespace
-    result = SimpleNamespace(text=None, tokens_used=0, error=error, embeddings=None)
+    result = SimpleNamespace(text=None, tokens_used=0, error=error)
     key_data = {"provider": "groq", "model": "llama-3.3-70b"}
     return result, key_data
 
@@ -120,69 +112,8 @@ class TestAggregatorChat:
         assert "system" in roles
         assert "user" in roles
 
-    def test_custom_category(self):
-        chat = AggregatorChat(category="embedding")
-        assert chat.category == "embedding"
-
     def test_default_params(self):
         chat = AggregatorChat()
         assert chat.max_tokens == 4096
         assert chat.temperature == 0.7
         assert chat.rotate_every == 5
-
-
-# --- AggregatorEmbeddings ---
-
-class TestAggregatorEmbeddings:
-
-    @patch("llm_keypool.providers.dispatch.embed", new_callable=AsyncMock)
-    @patch("llm_keypool.langchain_wrapper._build_rotator")
-    def test_embed_documents(self, mock_rotator, mock_embed):
-        mock_embed.return_value = _make_embed_result([[0.1, 0.2], [0.3, 0.4]])
-        mock_rotator.return_value = MagicMock()
-
-        emb = AggregatorEmbeddings()
-        result = emb.embed_documents(["text one", "text two"])
-
-        assert len(result) == 2
-        assert result[0] == [0.1, 0.2]
-
-    @patch("llm_keypool.providers.dispatch.embed", new_callable=AsyncMock)
-    @patch("llm_keypool.langchain_wrapper._build_rotator")
-    def test_embed_query(self, mock_rotator, mock_embed):
-        mock_embed.return_value = _make_embed_result([[0.5, 0.6, 0.7]])
-        mock_rotator.return_value = MagicMock()
-
-        emb = AggregatorEmbeddings()
-        result = emb.embed_query("search query")
-
-        assert result == [0.5, 0.6, 0.7]
-
-    @patch("llm_keypool.providers.dispatch.embed", new_callable=AsyncMock)
-    @patch("llm_keypool.langchain_wrapper._build_rotator")
-    def test_embed_error_raises(self, mock_rotator, mock_embed):
-        mock_embed.return_value = _make_error_result("no embedding keys")
-        mock_rotator.return_value = MagicMock()
-
-        emb = AggregatorEmbeddings()
-        with pytest.raises(RuntimeError, match="llm-keypool embed error"):
-            emb.embed_documents(["text"])
-
-    def test_default_category(self):
-        emb = AggregatorEmbeddings()
-        assert emb.category == "embedding"
-
-    def test_custom_category(self):
-        emb = AggregatorEmbeddings(category="general_purpose")
-        assert emb.category == "general_purpose"
-
-    @patch("llm_keypool.providers.dispatch.embed", new_callable=AsyncMock)
-    @patch("llm_keypool.langchain_wrapper._build_rotator")
-    def test_embed_single_text_returns_flat_list(self, mock_rotator, mock_embed):
-        mock_embed.return_value = _make_embed_result([[1.0, 2.0, 3.0]])
-        mock_rotator.return_value = MagicMock()
-
-        emb = AggregatorEmbeddings()
-        result = emb.embed_query("single")
-        assert isinstance(result, list)
-        assert isinstance(result[0], float)

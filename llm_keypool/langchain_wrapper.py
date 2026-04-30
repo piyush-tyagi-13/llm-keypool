@@ -92,6 +92,17 @@ class AggregatorChat(BaseChatModel):
     def _identifying_params(self) -> dict:
         return {"model": f"keypool/{self.category}", "category": self.category}
 
+    def current_key(self) -> dict | None:
+        """
+        Return the key that would be selected for the next request.
+        Does not make any API call or mutate rotation state.
+
+        Returns dict with: provider, model, key_id, requests_today,
+        tokens_used_today, cooldown_until, cycle_position, rotate_every.
+        Returns None if no keys available.
+        """
+        return self._get_rotator().peek_current_key(self.category)
+
     def pool_status(self) -> list[dict]:
         """
         Return current quota state for all active keys in this category.

@@ -155,6 +155,44 @@ class Rotator:
             "rotate_every":      self.rotate_every,
         }
 
+    def peek_current_key(self, category: str) -> Optional[dict]:
+        """
+        Return the key that would be selected next without mutating any state.
+        Returns None if no keys are available.
+        """
+        active = self.store.get_active_keys(category)
+        if not active:
+            return None
+
+        active_map = {k["id"]: k for k in active}
+        self._ensure_order(category, set(active_map.keys()))
+
+        order  = self._order[category]
+        cursor = self._cursor.get(category, 0) % len(order)
+        slot_count = dict(self._slot_count)  # read-only copy
+
+        for _ in range(len(order) + 1):
+            key_id = order[cursor % len(order)]
+            if key_id in active_map and slot_count.get(key_id, 0) < self.rotate_every:
+                break
+            cursor = (cursor + 1) % len(order)
+        else:
+            return None
+
+        best = active_map[order[cursor]]
+        cfg  = self.configs.get(best["provider"], {})
+        slot_pos = slot_count.get(best["id"], 0) + 1
+        return {
+            "key_id":            best["id"],
+            "provider":          best["provider"],
+            "model":             best["model"] or _resolve_model(cfg, category),
+            "requests_today":    best["requests_today"],
+            "tokens_used_today": best["tokens_used_today"],
+            "cooldown_until":    best.get("cooldown_until"),
+            "cycle_position":    slot_pos,
+            "rotate_every":      self.rotate_every,
+        }
+
     def handle_429(self, key_id: int, provider: str, headers: dict | None = None) -> str:
         """
         Compute cooldown_until for a 429 response.

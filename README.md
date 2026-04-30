@@ -219,15 +219,14 @@ LangSmith tracing works automatically if `LANGCHAIN_TRACING_V2` and `LANGCHAIN_A
 
 ## LangChain embeddings integration
 
-`AggregatorEmbeddings` is a `langchain_core.embeddings.Embeddings` drop-in backed by the embedding category keys (Jina, HuggingFace, etc.):
+`AggregatorEmbeddings` is a `langchain_core.embeddings.Embeddings` drop-in for embedding category keys (Jina, HuggingFace, etc.).
+
+> **Constraint:** All registered embedding keys must use the same model. Switching models mid-index corrupts the vector space - vectors from different models are not comparable. Register multiple keys of the same provider/model for rate-limit fallback only.
 
 ```python
 from llm_keypool import AggregatorEmbeddings
 
-embeddings = AggregatorEmbeddings(
-    category="embedding",
-    rotate_every=5,
-)
+embeddings = AggregatorEmbeddings(category="embedding")
 
 # Single query
 vector = embeddings.embed_query("What is Python?")

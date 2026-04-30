@@ -162,7 +162,11 @@ class AggregatorChat(BaseChatModel):
 class AggregatorEmbeddings(Embeddings):
     """
     LangChain Embeddings backed by llm-keypool.
-    Handles key selection, rotation, and 429 retries transparently.
+
+    Handles key selection and 429 cooldown retries. All registered
+    embedding keys MUST use the same model - switching models mid-index
+    breaks vector space consistency. Rotation across different models
+    is not supported.
     """
 
     category: str = "embedding"

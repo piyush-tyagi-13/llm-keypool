@@ -135,7 +135,7 @@ class ConfirmScreen(ModalScreen[bool]):
         self.dismiss(event.button.id == "confirm")
 
 
-class LLMAggregatorApp(App):
+class LLMKeyPoolApp(App):
     CSS = CSS
     TITLE = "llm-keypool"
     BINDINGS = [
@@ -296,4 +296,4 @@ class LLMAggregatorApp(App):
 
 
 def run() -> None:
-    LLMAggregatorApp().run()
+    LLMKeyPoolApp().run()

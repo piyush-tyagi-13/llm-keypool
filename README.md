@@ -1,10 +1,10 @@
-# llm-aggregator 
+# llm-keypool
 
-Free-tier LLM key pool manager. Register API keys from multiple providers once - the aggregator round-robins across them, handles 429 cooldowns, and retries transparently. No paid API needed.
+Free-tier LLM key pool manager. Register API keys from multiple providers once - llm-keypool round-robins across them, handles 429 cooldowns, and retries transparently. No paid API needed.
 
 Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 
-**Roadmap:** OpenAI-compatible local proxy server (`llm-aggregator proxy`) - point any agent at `http://localhost:8000/v1`, llm-keypool handles routing and rotation transparently. Session affinity ensures consistent provider within a conversation.
+**Roadmap:** OpenAI-compatible local proxy server (`llm-keypool proxy`) - point any agent at `http://localhost:8000/v1`, llm-keypool handles routing and rotation transparently. Session affinity ensures consistent provider within a conversation.
 
 ---
 
@@ -25,9 +25,9 @@ Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 - **Persistent state** - SQLite, WAL mode; rotation position and cooldowns survive restarts
 - **LangSmith compatible** - works with LangChain tracing out of the box
 
-Keys DB lives at: `~/.llm-aggregator/keys.db`
+Keys DB lives at: `~/.llm-keypool/keys.db`
 
-Override path: `export LLM_AGGREGATOR_DB=/custom/path/keys.db`
+Override path: `export LLM_KEYPOOL_DB=/custom/path/keys.db`
 
 ---
 
@@ -66,26 +66,26 @@ uv tool install --force "markdowncore-ai[gui]" --with llm-keypool
 
 ```bash
 # Register keys (one-time)
-llm-aggregator add groq gsk_... --model llama-3.3-70b-versatile --category general_purpose
-llm-aggregator add cerebras csk_... --model llama-3.3-70b --category general_purpose
+llm-keypool add --provider groq --key gsk_... --model llama-3.3-70b-versatile --category general_purpose
+llm-keypool add --provider cerebras --key csk_... --model llama-3.3-70b --category general_purpose
 
 # Check status
-llm-aggregator status
+llm-keypool status
 
 # Launch TUI
-llm-aggregator gui
+llm-keypool tui
 ```
 
 ---
 
 ## CLI Reference
 
-### `llm-aggregator status`
+### `llm-keypool status`
 
 Show all registered keys with cooldown and usage info.
 
 ```
-llm-aggregator status
+llm-keypool status
 ```
 
 ```
@@ -97,12 +97,12 @@ llm-aggregator status
 
 ---
 
-### `llm-aggregator add`
+### `llm-keypool add`
 
 Register an API key for a provider.
 
 ```bash
-llm-aggregator add <provider> <key> --model <model> --category <category>
+llm-keypool add --provider <provider> --key <key> [--model <model>] [--category <category>]
 ```
 
 | Flag | Default | Description |
@@ -113,50 +113,50 @@ llm-aggregator add <provider> <key> --model <model> --category <category>
 Examples:
 
 ```bash
-llm-aggregator add groq gsk_...          --model llama-3.3-70b-versatile --category general_purpose
-llm-aggregator add cerebras csk_...      --model llama-3.3-70b           --category general_purpose
-llm-aggregator add mistral sk_...        --model mistral-small-latest     --category general_purpose
-llm-aggregator add openrouter sk-or-...  --model meta-llama/llama-3.3-70b-instruct:free --category general_purpose
+llm-keypool add --provider groq --key gsk_...          --model llama-3.3-70b-versatile --category general_purpose
+llm-keypool add --provider cerebras --key csk_...      --model llama-3.3-70b           --category general_purpose
+llm-keypool add --provider mistral --key sk_...        --model mistral-small-latest     --category general_purpose
+llm-keypool add --provider openrouter --key sk-or-...  --model meta-llama/llama-3.3-70b-instruct:free --category general_purpose
 ```
 
 ---
 
-### `llm-aggregator deactivate`
+### `llm-keypool deactivate`
 
 Deactivate a revoked or expired key. Does not delete it.
 
 ```bash
-llm-aggregator deactivate --id 3
+llm-keypool deactivate --id 3
 ```
 
 ---
 
-### `llm-aggregator clear-cooldown`
+### `llm-keypool clear-cooldown`
 
 Manually clear a key's cooldown after you've confirmed the quota has reset.
 
 ```bash
-llm-aggregator clear-cooldown --id 2
+llm-keypool clear-cooldown --id 2
 ```
 
 ---
 
-### `llm-aggregator providers`
+### `llm-keypool providers`
 
 List all supported providers, their categories, default models, and OpenAI compatibility.
 
 ```bash
-llm-aggregator providers
+llm-keypool providers
 ```
 
 ---
 
-### `llm-aggregator gui`
+### `llm-keypool tui`
 
 Launch the Textual TUI. Requires `[gui]` extra.
 
 ```bash
-llm-aggregator gui
+llm-keypool tui
 ```
 
 Features: tabular key view, inline deactivate/clear-cooldown, add key form.
@@ -183,7 +183,7 @@ Full provider details and rate limits: [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md)
 `AggregatorChat` is a `BaseChatModel` drop-in:
 
 ```python
-from llm_aggregator import AggregatorChat
+from llm_keypool import AggregatorChat
 
 llm = AggregatorChat(
     category="general_purpose",
@@ -221,12 +221,12 @@ LangSmith tracing works automatically if `LANGCHAIN_TRACING_V2` and `LANGCHAIN_A
 
 ```python
 import asyncio, json
-from llm_aggregator.key_store import KeyStore
-from llm_aggregator.rotator import Rotator
-from llm_aggregator.providers.dispatch import complete
+from llm_keypool.key_store import KeyStore
+from llm_keypool.rotator import Rotator
+from llm_keypool.providers.dispatch import complete
 from pathlib import Path
 
-with open(Path(__file__).parent / "llm_aggregator/config/providers.json") as f:
+with open(Path(__file__).parent / "llm_keypool/config/providers.json") as f:
     configs = json.load(f)["providers"]
 
 rotator = Rotator(KeyStore(), configs, rotate_every=5)
@@ -255,7 +255,7 @@ Cooldown timestamps are derived from response headers where available, so the ke
 | Provider | Source | Behaviour |
 |---|---|---|
 | **Groq** | `x-ratelimit-reset-requests` header | Exact reset duration parsed from the header (e.g. `1m26.4s`). On 429 with `retry-after`, uses that instead. |
-| **Cerebras** | `x-ratelimit-remaining-requests-{minute,hour,day}` | Tiered: minute exhausted → 60s; hour exhausted → 3600s; day exhausted → next UTC midnight. |
+| **Cerebras** | `x-ratelimit-remaining-requests-{minute,hour,day}` | Tiered: minute exhausted -> 60s; hour exhausted -> 3600s; day exhausted -> next UTC midnight. |
 | **Mistral** | `x-ratelimit-remaining-req-minute` | 60s rolling when per-minute quota hits zero. |
 | **OpenRouter** | none (no headers returned) | Next UTC midnight (RPD is binding limit). |
 | **SambaNova** | none | 65s rolling. |
@@ -271,11 +271,11 @@ Header parsing was verified against live API responses. Providers without header
 ## Project structure
 
 ```
-llm-aggregator/
-- llm_aggregator/
-  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, gui)
+llm-keypool/
+- llm_keypool/
+  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, tui)
   - tui.py               # Textual TUI
-  - key_store.py         # SQLite persistence (~/.llm-aggregator/keys.db)
+  - key_store.py         # SQLite persistence (~/.llm-keypool/keys.db)
   - rotator.py           # round-robin rotation + cooldown logic
   - langchain_wrapper.py # AggregatorChat (BaseChatModel)
   - providers/

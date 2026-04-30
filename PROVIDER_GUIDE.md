@@ -1,8 +1,8 @@
-# LLM Aggregator - Provider Guide
+# llm-keypool - Provider Guide
 
-> Generated: 2026-04-27
+> Generated: 2026-04-30
 > Purpose: Registration guide for API keys + config source for reset schedules and rate limits.
-> Use this doc to sign up for each provider and register keys into the aggregator.
+> Use this doc to sign up for each provider and register keys into llm-keypool.
 
 ---
 
@@ -10,8 +10,8 @@
 
 1. Visit each provider's signup URL below
 2. Create account, generate API key
-3. Register key via aggregator: `register_key(provider="<name>", api_key="<key>")`
-4. Aggregator loads reset schedules and limits from `providers.json` (derived from this doc)
+3. Register key via CLI: `llm-keypool add --provider <name> --key <key>`
+4. llm-keypool loads reset schedules and limits from `providers.json` (derived from this doc)
 
 ---
 
@@ -478,7 +478,7 @@ Some providers (Google, Cohere, Cloudflare) appear in both categories.
 
 ---
 
-## Aggregator Configuration Reference
+## llm-keypool Configuration Reference
 
 Below is the data this guide generates into `providers.json`. Edit reset cadences here if provider changes limits.
 
@@ -774,5 +774,5 @@ Below is the data this guide generates into `providers.json`. Edit reset cadence
 - **Together AI** excluded: no persistent free tier as of 2026 (one-time credits only, no recurring reset)
 - **Ollama** excluded: local deployment only, no remote API key concept
 - **OpenAI / Anthropic** excluded: no free tier
-- Provider limits change frequently - re-run survey periodically via `run_survey` MCP tool
+- Provider limits change frequently - re-run survey periodically and update `providers.json`
 - Cloudflare requires `ACCOUNT_ID` in addition to API token - store both when registering

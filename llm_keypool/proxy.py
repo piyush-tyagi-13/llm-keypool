@@ -47,8 +47,8 @@ def make_app(category: str = "general_purpose", rotate_every: int = 5) -> FastAP
             kwargs["max_tokens"] = req.max_tokens
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
-        if req.model:
-            kwargs["model"] = req.model
+        # Do not forward req.model - each key uses its own assigned model
+        # so rotation across providers (groq/cerebras/mistral) works correctly.
 
         result, key_data = await complete(rotator, cat, req.messages, **kwargs)
 

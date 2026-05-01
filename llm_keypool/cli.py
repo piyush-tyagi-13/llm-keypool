@@ -163,3 +163,23 @@ def gui():
         console.print("[red]Textual not installed.[/red] Run: pip install 'llm-keypool\\[gui]'")
         raise typer.Exit(1)
     run()
+
+
+@app.command()
+def proxy(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
+    port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
+    category: str = typer.Option("general_purpose", "--category", "-c", help="Default key category"),
+    rotate_every: int = typer.Option(5, "--rotate-every", help="Requests per key before rotating"),
+):
+    """Start OpenAI-compatible proxy at http://localhost:8000/v1."""
+    try:
+        import uvicorn
+        from llm_keypool.proxy import make_app
+    except ImportError:
+        console.print("[red]Proxy deps missing.[/red] Run: pip install 'llm-keypool[proxy]'")
+        raise typer.Exit(1)
+
+    console.print(f"[green]llm-keypool proxy[/green] listening on [cyan]http://{host}:{port}/v1[/cyan]")
+    console.print(f"Category: [cyan]{category}[/cyan] | Rotate every: [cyan]{rotate_every}[/cyan] requests")
+    uvicorn.run(make_app(category=category, rotate_every=rotate_every), host=host, port=port)

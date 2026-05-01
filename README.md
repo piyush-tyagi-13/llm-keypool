@@ -2,9 +2,7 @@
 
 Free-tier LLM key pool manager. Register API keys from multiple providers once - llm-keypool round-robins across them, handles 429 cooldowns, and retries transparently. No paid API needed.
 
-Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
-
-**Roadmap:** OpenAI-compatible local proxy server (`llm-keypool proxy`) - point any agent at `http://localhost:8000/v1`, llm-keypool handles routing and rotation transparently. Session affinity ensures consistent provider within a conversation.
+Exposes a CLI, a Textual TUI, a LangChain drop-in (`AggregatorChat`), and a local OpenAI-compatible proxy server so any agent or tool that speaks the OpenAI API can use the key pool with zero code changes.
 
 ---
 
@@ -21,6 +19,7 @@ Exposes a CLI, a Textual TUI, and a LangChain drop-in (`AggregatorChat`).
 - **Multi-provider pooling** - pool keys across Groq, Cerebras, Mistral, OpenRouter, SambaNova, and more
 - **Automatic rotation** - round-robin across keys, rotates every N requests (default: 5)
 - **429 handling** - on rate limit, key enters cooldown; next call retries a different key automatically
+- **OpenAI-compatible proxy** - `llm-keypool proxy` starts a local server at `http://localhost:8000/v1`; point any agent or tool at it and get transparent rotation
 - **Think-token stripping** - removes `<think>...</think>` from reasoning model outputs
 - **Persistent state** - SQLite, WAL mode; rotation position and cooldowns survive restarts
 - **LangSmith compatible** - works with LangChain tracing out of the box
@@ -39,10 +38,13 @@ Override path: `export LLM_KEYPOOL_DB=/custom/path/keys.db`
 # Recommended - with TUI
 uv tool install "llm-keypool[gui]"
 
-# Without TUI
-uv tool install llm-keypool
+# With proxy server
+pip install "llm-keypool[proxy]"
 
-# pip
+# Everything
+pip install "llm-keypool[all]"
+
+# Minimal
 pip install llm-keypool
 ```
 
@@ -163,6 +165,43 @@ Features: tabular key view, inline deactivate/clear-cooldown, add key form.
 
 ---
 
+### `llm-keypool proxy`
+
+Start a local OpenAI-compatible proxy server. Requires `[proxy]` extra.
+
+```bash
+llm-keypool proxy [--host 127.0.0.1] [--port 8000] [--category general_purpose] [--rotate-every 5]
+```
+
+The proxy exposes three endpoints:
+
+| Endpoint | Description |
+|---|---|
+| `POST /v1/chat/completions` | Chat completions with streaming (SSE) support |
+| `GET /v1/models` | Lists all models across registered providers |
+| `GET /health` | Pool status - total and active key counts |
+
+Point any OpenAI-compatible client at `http://127.0.0.1:8000/v1`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="keypool")
+response = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(response.choices[0].message.content)
+```
+
+Each key uses its own assigned model - the `model` field in the request is ignored so rotation across providers (Groq, Cerebras, Mistral, OpenRouter) works correctly regardless of what model name the client sends.
+
+Override the key category per request with the `X-Keypool-Category` header.
+
+**Hermes Agent integration:** see [docs/hermes-agent.md](docs/hermes-agent.md) for a full setup guide.
+
+---
+
 ## Registering keys - free tier providers
 
 All providers below have a free tier. No credit card required.
@@ -273,7 +312,8 @@ Header parsing was verified against live API responses. Providers without header
 ```
 llm-keypool/
 - llm_keypool/
-  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, gui)
+  - cli.py               # Typer CLI (status, add, deactivate, clear-cooldown, providers, gui, proxy)
+  - proxy.py             # OpenAI-compatible proxy server (FastAPI)
   - tui.py               # Textual TUI
   - key_store.py         # SQLite persistence (~/.llm-keypool/keys.db)
   - rotator.py           # round-robin rotation + cooldown logic
@@ -286,6 +326,8 @@ llm-keypool/
     - cloudflare.py
   - config/
     - providers.json     # provider metadata, limits, models, reset schedules
+- docs/
+  - hermes-agent.md      # Hermes Agent integration guide
 - tests/
   - test_key_store.py    # KeyStore CRUD, cooldown, usage, migration
   - test_rotator.py      # rotation, 429 handling, cooldown strategies
@@ -302,4 +344,4 @@ llm-keypool/
 
 **OpenClaw AgentSkill** - expose llm-keypool as an [OpenClaw](https://github.com/openclaw/openclaw) AgentSkill so OpenClaw's autonomous agent loop can call the key pool directly without needing a LangChain wrapper. OpenClaw skills register as callable tools with typed inputs - `keypool_complete(messages, category)` would drop in as a first-class skill, giving OpenClaw transparent key rotation and free-tier quota management across its LLM calls.
 
-**Hermes Agent tool** - register llm-keypool as a callable tool inside [Hermes Agent](https://github.com/nousresearch/hermes-agent) (Nous Research). Hermes's `delegate_task` spawns isolated subagents - each subagent hitting llm-keypool independently means parallel workstreams automatically spread load across the key pool without any extra coordination. Target: `keypool_complete` registered in Hermes's tool registry, with `current_key()` surfaced as a `keypool_status` tool for observability during delegation chains.
+**Session affinity** - optionally pin a conversation to the same provider/key for the duration of a session, so multi-turn context stays consistent. Useful when a delegated sub-agent needs to maintain state within a single task.

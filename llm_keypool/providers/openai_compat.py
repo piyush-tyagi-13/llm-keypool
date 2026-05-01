@@ -15,11 +15,12 @@ def _strip_thinking(text: str) -> str:
 
 async def complete(key_data: dict, messages: list[dict], **kwargs) -> CompletionResult:
     strip_thinking = kwargs.pop("strip_thinking", True)
+    model = kwargs.pop("model", None) or key_data["model"]
     provider = key_data.get("provider", "")
     client = AsyncOpenAI(base_url=key_data["base_url"], api_key=key_data["api_key"])
     try:
         raw = await client.chat.completions.with_raw_response.create(
-            model=key_data["model"],
+            model=model,
             messages=messages,
             **kwargs,
         )

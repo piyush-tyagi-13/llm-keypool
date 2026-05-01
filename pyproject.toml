@@ -19,8 +19,14 @@ dependencies = [
 gui = [
     "textual>=0.80",
 ]
+proxy = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
 all = [
     "textual>=0.80",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 dev = [
     "pytest>=8",

@@ -4,6 +4,8 @@ Free-tier LLM key pool manager. Register API keys from multiple providers once -
 
 Exposes a CLI, a Textual TUI, a LangChain drop-in (`AggregatorChat`), and a local OpenAI-compatible proxy server so any agent or tool that speaks the OpenAI API can use the key pool with zero code changes.
 
+Works as a free drop-in backend for [Hermes Agent](https://github.com/nousresearch/hermes-agent) - run the proxy, point Hermes at it, and your free-tier keys handle all LLM calls including delegated sub-agents, with no paid API subscription required. See [docs/hermes-agent.md](docs/hermes-agent.md).
+
 ---
 
 ## Screenshots

@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 # DB lives at ~/.llm-keypool/keys.db by default; override via LLM_KEYPOOL_DB env var
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,
     api_key TEXT NOT NULL,
-    category TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '["general_purpose"]',
     model TEXT,
     extra_params TEXT NOT NULL DEFAULT '{}',
     is_active INTEGER NOT NULL DEFAULT 1,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 
 CREATE TABLE IF NOT EXISTS rotation_state (
-    category TEXT PRIMARY KEY,
+    cap_key TEXT PRIMARY KEY,
     cursor INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -51,11 +51,50 @@ CREATE TABLE IF NOT EXISTS rotation_slot_counts (
     key_id INTEGER NOT NULL PRIMARY KEY,
     slot_count INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL,
+    subscriber_id TEXT NOT NULL DEFAULT 'unknown',
+    key_id        INTEGER,
+    provider      TEXT,
+    model         TEXT,
+    tokens_in     INTEGER DEFAULT 0,
+    tokens_out    INTEGER DEFAULT 0,
+    latency_ms    INTEGER DEFAULT 0,
+    success       INTEGER DEFAULT 1,
+    error         TEXT
+);
 """
 
 MIGRATIONS = [
     "ALTER TABLE api_keys ADD COLUMN model TEXT",
+    # capabilities column: migrate from legacy category column
+    "ALTER TABLE api_keys ADD COLUMN capabilities TEXT",
+    # rotation_state: rename category -> cap_key (SQLite 3.25+)
+    "ALTER TABLE rotation_state RENAME COLUMN category TO cap_key",
+    # audit_log table
+    (
+        "CREATE TABLE IF NOT EXISTS audit_log ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ts TEXT NOT NULL, "
+        "subscriber_id TEXT NOT NULL DEFAULT 'unknown', "
+        "key_id INTEGER, "
+        "provider TEXT, "
+        "model TEXT, "
+        "tokens_in INTEGER DEFAULT 0, "
+        "tokens_out INTEGER DEFAULT 0, "
+        "latency_ms INTEGER DEFAULT 0, "
+        "success INTEGER DEFAULT 1, "
+        "error TEXT)"
+    ),
 ]
+
+# Migrate existing rows: populate capabilities from legacy category column
+_MIGRATE_CAPABILITIES = (
+    "UPDATE api_keys SET capabilities = json_array(category) "
+    "WHERE capabilities IS NULL AND category IS NOT NULL"
+)
 
 
 class KeyStore:
@@ -78,6 +117,28 @@ class KeyStore:
                     conn.execute(migration)
                 except sqlite3.OperationalError:
                     pass
+            # populate capabilities from legacy category for any existing rows
+            try:
+                conn.execute(_MIGRATE_CAPABILITIES)
+            except sqlite3.OperationalError:
+                pass
+
+    # --- capability helpers ---
+
+    @staticmethod
+    def parse_capabilities(row: dict) -> list[str]:
+        """Parse capabilities from a DB row, with fallback to legacy category field."""
+        caps = row.get("capabilities")
+        if caps:
+            try:
+                parsed = json.loads(caps)
+                if isinstance(parsed, list) and parsed:
+                    return [str(c) for c in parsed]
+            except (json.JSONDecodeError, TypeError):
+                return [str(caps)]
+        # legacy fallback
+        cat = row.get("category", "general_purpose")
+        return [cat] if cat else ["general_purpose"]
 
     # --- key management ---
 
@@ -85,35 +146,64 @@ class KeyStore:
         self,
         provider: str,
         api_key: str,
-        category: str,
-        model: Optional[str],
-        extra_params: dict,
+        capabilities: list[str] | str | None = None,
+        model: Optional[str] = None,
+        extra_params: dict | None = None,
+        # deprecated - kept for backward compat
+        category: str | None = None,
     ) -> dict:
+        if capabilities is None:
+            capabilities = [category] if category else ["general_purpose"]
+        elif isinstance(capabilities, str):
+            # backward compat: positional string arg (old category param)
+            capabilities = [capabilities]
         with self._conn() as conn:
             try:
                 conn.execute(
-                    "INSERT INTO api_keys (provider, api_key, category, model, extra_params) VALUES (?, ?, ?, ?, ?)",
-                    (provider, api_key, category, model or None, json.dumps(extra_params)),
+                    "INSERT INTO api_keys (provider, api_key, capabilities, model, extra_params) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        provider,
+                        api_key,
+                        json.dumps(capabilities),
+                        model or None,
+                        json.dumps(extra_params or {}),
+                    ),
                 )
-                return {"success": True, "message": f"Key registered for {provider} ({category}) model={model or 'default'}"}
+                caps_str = ", ".join(capabilities)
+                return {
+                    "success": True,
+                    "message": f"Key registered for {provider} ({caps_str}) model={model or 'default'}",
+                }
             except sqlite3.IntegrityError:
-                return {"success": False, "message": f"Key already registered for {provider}. Deactivate existing key first."}
+                return {
+                    "success": False,
+                    "message": f"Key already registered for {provider}. Deactivate existing key first.",
+                }
 
-    def get_active_keys(self, category: str) -> list[dict]:
+    def get_active_keys(self, capabilities: list[str] | str) -> list[dict]:
+        """Return active, non-cooled-down keys that have ANY of the requested capabilities."""
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
         now = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM api_keys
-                   WHERE category = ? AND is_active = 1
+                   WHERE is_active = 1
                      AND (cooldown_until IS NULL OR cooldown_until < ?)
                    ORDER BY requests_today ASC""",
-                (category, now),
+                (now,),
             ).fetchall()
-            return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            row = dict(r)
+            key_caps = self.parse_capabilities(row)
+            if any(c in key_caps for c in capabilities):
+                result.append(row)
+        return result
 
     def get_all_keys(self) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM api_keys ORDER BY provider, category").fetchall()
+            rows = conn.execute("SELECT * FROM api_keys ORDER BY provider").fetchall()
             return [dict(r) for r in rows]
 
     def get_key_by_id(self, key_id: int) -> Optional[dict]:
@@ -184,15 +274,78 @@ class KeyStore:
         with self._conn() as conn:
             conn.execute("UPDATE api_keys SET cooldown_until = NULL WHERE id = ?", (key_id,))
 
-    # --- rotation state persistence ---
+    # --- audit log ---
 
-    def save_rotation_state(self, category: str, cursor: int, slot_counts: dict[int, int]):
+    def log_audit(
+        self,
+        subscriber_id: str,
+        key_id: int,
+        provider: str,
+        model: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        latency_ms: int = 0,
+        success: bool = True,
+        error: str | None = None,
+    ):
         now = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO rotation_state (category, cursor, updated_at) VALUES (?, ?, ?) "
-                "ON CONFLICT(category) DO UPDATE SET cursor=excluded.cursor, updated_at=excluded.updated_at",
-                (category, cursor, now),
+                """INSERT INTO audit_log
+                   (ts, subscriber_id, key_id, provider, model, tokens_in, tokens_out, latency_ms, success, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (now, subscriber_id, key_id, provider, model, tokens_in, tokens_out, latency_ms,
+                 1 if success else 0, error),
+            )
+
+    def get_audit_log(
+        self,
+        subscriber_id: str | None = None,
+        days: int = 7,
+        limit: int = 200,
+    ) -> list[dict]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._conn() as conn:
+            if subscriber_id:
+                rows = conn.execute(
+                    "SELECT * FROM audit_log WHERE ts > ? AND subscriber_id = ? ORDER BY ts DESC LIMIT ?",
+                    (cutoff, subscriber_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM audit_log WHERE ts > ? ORDER BY ts DESC LIMIT ?",
+                    (cutoff, limit),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_audit_summary(self, days: int = 7) -> list[dict]:
+        """Aggregate token/request counts grouped by subscriber_id."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT subscriber_id,
+                          COUNT(*) as requests,
+                          SUM(tokens_in) as tokens_in,
+                          SUM(tokens_out) as tokens_out,
+                          SUM(tokens_in + tokens_out) as tokens_total,
+                          SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) as errors
+                   FROM audit_log
+                   WHERE ts > ?
+                   GROUP BY subscriber_id
+                   ORDER BY tokens_total DESC""",
+                (cutoff,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- rotation state persistence ---
+
+    def save_rotation_state(self, cap_key: str, cursor: int, slot_counts: dict[int, int]):
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO rotation_state (cap_key, cursor, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(cap_key) DO UPDATE SET cursor=excluded.cursor, updated_at=excluded.updated_at",
+                (cap_key, cursor, now),
             )
             for key_id, count in slot_counts.items():
                 conn.execute(
@@ -201,10 +354,10 @@ class KeyStore:
                     (key_id, count),
                 )
 
-    def load_rotation_state(self, category: str) -> tuple[int, dict[int, int]]:
+    def load_rotation_state(self, cap_key: str) -> tuple[int, dict[int, int]]:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT cursor FROM rotation_state WHERE category = ?", (category,)
+                "SELECT cursor FROM rotation_state WHERE cap_key = ?", (cap_key,)
             ).fetchone()
             cursor = row["cursor"] if row else 0
 

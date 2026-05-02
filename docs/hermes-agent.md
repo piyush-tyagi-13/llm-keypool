@@ -5,26 +5,37 @@ OpenAI-compatible proxy - Hermes points at it like any other LLM endpoint, and
 the proxy handles key rotation, 429 cooldowns, and provider switching
 transparently.
 
+Two proxy instances serve different capability tiers:
+- **:8000** (agentic) - Hermes main loop: tool use, multi-step reasoning
+- **:8001** (general_purpose + fast) - Hermes delegate calls: summarization, context compression, quick lookups
+
+All calls are logged to the audit table so you can see token spend per subscriber.
+
 ---
 
 ## How it works
 
 ```
-hermes-agent
+hermes-agent (main loop)
     |
-    | OpenAI API calls (http://127.0.0.1:8000/v1)
+    | OpenAI calls + X-Subscriber-ID: hermes.main
     v
-llm-keypool proxy
+llm-keypool proxy :8000  [capabilities: agentic]
     |
-    +-- groq key 1  (llama-3.3-70b-versatile)
-    +-- groq key 2
-    +-- cerebras key (llama3.1-8b)
-    +-- mistral key  (ministral-8b)
-    +-- openrouter key
-```
+    +-- mistral key     (mistral-large-latest)
+    +-- openrouter key  (hermes-3-405b)
+    +-- groq key        (qwen3-32b)
 
-Main agent, delegated sub-agents, and fallback failover all route through the
-same proxy. No code changes to Hermes required.
+hermes-agent (delegate/sub-agent calls)
+    |
+    | OpenAI calls + X-Subscriber-ID: hermes.delegate
+    v
+llm-keypool proxy :8001  [capabilities: general_purpose, fast]
+    |
+    +-- cerebras key    (llama3.3-70b - fast)
+    +-- groq key        (llama-3.3-70b-versatile - fast)
+    +-- openrouter key  (general pool)
+```
 
 ---
 
@@ -32,10 +43,11 @@ same proxy. No code changes to Hermes required.
 
 - Hermes Agent installed (`hermes --version`)
 - Python 3.11+
-- Free-tier API keys from one or more supported providers
+- Free-tier API keys from supported providers
 
-**Supported free-tier providers:** Groq, Cerebras, Mistral, OpenRouter,
-SambaNova, Cohere, Cloudflare, HuggingFace
+**Agentic-capable providers** (for :8000): Mistral (mistral-large-latest), OpenRouter (hermes-3-405b, qwen3-32b), Groq (qwen3-32b)
+
+**Fast providers** (for :8001): Cerebras (sub-200ms), Groq (fast inference)
 
 ---
 
@@ -45,28 +57,23 @@ SambaNova, Cohere, Cloudflare, HuggingFace
 pip install 'llm-keypool[proxy]'
 ```
 
-Verify:
-
-```bash
-llm-keypool --help
-```
-
 ---
 
 ## Step 2 - Register API keys
 
-Get free keys from any of the providers above and register them:
+Register agentic-capable keys with `--capabilities agentic`:
 
 ```bash
-llm-keypool add --provider groq     --key gsk_...
-llm-keypool add --provider cerebras --key csk_...
-llm-keypool add --provider mistral  --key ...
+llm-keypool add --provider mistral    --key sk_...     --capabilities agentic        --model mistral-large-latest
+llm-keypool add --provider openrouter --key sk-or-...  --capabilities agentic        --model nousresearch/hermes-3-llama-3.1-405b:free
+llm-keypool add --provider groq       --key gsk_...    --capabilities agentic,fast   --model qwen/qwen3-32b
 ```
 
-Multiple keys per provider are supported and will be round-robin rotated:
+Register fast general-purpose keys for the delegate pool:
 
 ```bash
-llm-keypool add --provider groq --key gsk_SECOND_KEY
+llm-keypool add --provider cerebras  --key csk_...  --capabilities general_purpose,fast  --model llama3.3-70b
+llm-keypool add --provider groq      --key gsk_...  --capabilities general_purpose,fast  --model llama-3.3-70b-versatile
 ```
 
 Check your pool:
@@ -75,47 +82,31 @@ Check your pool:
 llm-keypool status
 ```
 
-```
-╭──────┬──────────┬──────────────────┬────────────────────────┬─────────╮
-│ ID   │ Provider │ Category         │ Model                  │ Active  │
-├──────┼──────────┼──────────────────┼────────────────────────┼─────────┤
-│ 1    │ groq     │ general_purpose  │ llama-3.3-70b-versatile│ yes     │
-│ 2    │ cerebras │ general_purpose  │ llama3.1-8b            │ yes     │
-╰──────┴──────────┴──────────────────┴────────────────────────┴─────────╯
-```
-
 ---
 
-## Step 3 - Start the proxy
+## Step 3 - Start the proxies
+
+**Agentic proxy (Hermes main loop):**
 
 ```bash
-llm-keypool proxy
+llm-keypool proxy --port 8000 --capabilities agentic
 ```
 
-```
-llm-keypool proxy listening on http://127.0.0.1:8000/v1
-Category: general_purpose | Rotate every: 5 requests
-INFO:     Uvicorn running on http://127.0.0.1:8000
+**Delegate proxy (Hermes sub-agent/delegation calls):**
+
+```bash
+llm-keypool proxy --port 8001 --capabilities general_purpose,fast
 ```
 
-Verify it is working:
+Verify:
 
 ```bash
 curl http://127.0.0.1:8000/health
-# {"status":"ok","keys_total":2,"keys_active":2}
+# {"status":"ok","keys_total":7,"keys_active":3,"capabilities":["agentic"]}
+
+curl http://127.0.0.1:8001/health
+# {"status":"ok","keys_total":7,"keys_active":4,"capabilities":["general_purpose","fast"]}
 ```
-
-**Keep this terminal open.** Start it in a separate window or as a background
-service before launching Hermes.
-
-### Optional flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | `8000` | Port to listen on |
-| `--host` | `127.0.0.1` | Bind address |
-| `--category` | `general_purpose` | Key category to draw from |
-| `--rotate-every` | `5` | Requests per key before rotating |
 
 ---
 
@@ -124,85 +115,53 @@ service before launching Hermes.
 Edit `~/.hermes/config.yaml`:
 
 ```yaml
-# Main agent model
+# Main agent model - draws from agentic pool
 model:
-  default: llama-3.3-70b-versatile
+  default: mistral-large-latest
   provider: ''
   base_url: 'http://127.0.0.1:8000/v1'
   api_key: 'keypool'
 
-# Delegated sub-agents (delegate_task tool)
+# Delegated sub-agents - draws from fast general pool
 delegation:
   model: 'llama-3.3-70b-versatile'
   provider: ''
-  base_url: 'http://127.0.0.1:8000/v1'
+  base_url: 'http://127.0.0.1:8001/v1'
   api_key: 'keypool'
 
-# Fallback when primary fails (429, 503, overload)
+# Fallback when primary fails - also use delegate pool
 fallback_model:
   provider: ''
-  base_url: 'http://127.0.0.1:8000/v1'
+  base_url: 'http://127.0.0.1:8001/v1'
   api_key: 'keypool'
   model: 'llama-3.3-70b-versatile'
 ```
 
-Or use the CLI:
+To enable subscriber tracking in the audit log, configure Hermes to send
+`X-Subscriber-ID` headers. In your Hermes request config:
 
-```bash
-hermes config set model.default llama-3.3-70b-versatile
-hermes config set model.base_url http://127.0.0.1:8000/v1
-hermes config set model.api_key keypool
-hermes config set model.provider ''
+```yaml
+extra_headers:
+  main: 'X-Subscriber-ID: hermes.main'
+  delegate: 'X-Subscriber-ID: hermes.delegate'
 ```
 
----
-
-## Step 5 - Start Hermes
-
-```bash
-hermes
-```
-
-Hermes will now call the local proxy for all LLM requests. The proxy rotates
-through your registered keys automatically.
-
----
-
-## Requesting a specific model
-
-The `model` field in any request to the proxy is forwarded to the provider. You
-can override the default per-request by setting a model that the assigned key
-supports:
-
-```bash
-hermes config set model.default llama3.1-8b   # faster, lower quality
-hermes config set model.default qwen/qwen3-32b # groq-specific
-```
-
-Or switch at runtime inside Hermes:
-
-```
-/model llama-3.3-70b-versatile
-```
-
----
-
-## Overriding category per request
-
-Send `X-Keypool-Category` header to select a different key pool:
+Or send the header manually via curl/client:
 
 ```bash
 curl http://127.0.0.1:8000/v1/chat/completions \
+  -H "X-Subscriber-ID: hermes.main" \
   -H "Content-Type: application/json" \
-  -H "X-Keypool-Category: general_purpose" \
-  -d '{"model":"llama-3.3-70b-versatile","messages":[{"role":"user","content":"hello"}]}'
+  -d '{"messages":[{"role":"user","content":"hello"}]}'
 ```
 
 ---
 
-## Running the proxy as a background service (macOS launchd)
+## Step 5 - Run as background services (macOS launchd)
 
-Create `~/Library/LaunchAgents/com.llm-keypool.proxy.plist`:
+Create two plist files:
+
+**`~/Library/LaunchAgents/ai.llmkeypool.proxy.plist`** (agentic, :8000):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -211,70 +170,127 @@ Create `~/Library/LaunchAgents/com.llm-keypool.proxy.plist`:
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.llm-keypool.proxy</string>
+  <string>ai.llmkeypool.proxy</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/path/to/venv/bin/llm-keypool</string>
+    <string>/path/to/llm-keypool</string>
     <string>proxy</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8000</string>
+    <string>--capabilities</string><string>agentic</string>
   </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>/tmp/llm-keypool-proxy.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/llm-keypool-proxy.err</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>/tmp/llm-keypool-proxy.log</string>
+  <key>StandardErrorPath</key><string>/tmp/llm-keypool-proxy.err</string>
 </dict>
 </plist>
 ```
 
-Replace `/path/to/venv/bin/llm-keypool` with the output of `which llm-keypool`.
+**`~/Library/LaunchAgents/ai.llmkeypool.proxy-delegate.plist`** (general+fast, :8001):
 
-```bash
-launchctl load ~/Library/LaunchAgents/com.llm-keypool.proxy.plist
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.llmkeypool.proxy.delegate</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/llm-keypool</string>
+    <string>proxy</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8001</string>
+    <string>--capabilities</string><string>general_purpose,fast</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>/tmp/llm-keypool-proxy-delegate.log</string>
+  <key>StandardErrorPath</key><string>/tmp/llm-keypool-proxy-delegate.err</string>
+</dict>
+</plist>
 ```
 
-The proxy now starts automatically on login.
+Load both:
+
+```bash
+launchctl load ~/Library/LaunchAgents/ai.llmkeypool.proxy.plist
+launchctl load ~/Library/LaunchAgents/ai.llmkeypool.proxy-delegate.plist
+```
+
+---
+
+## Audit log
+
+View token spend by subscriber:
+
+```bash
+# summary table (last 7 days)
+llm-keypool audit --summary
+
+# raw rows for hermes.main only
+llm-keypool audit --subscriber hermes.main
+
+# last 30 days
+llm-keypool audit --summary --days 30
+```
+
+Or via HTTP while the proxy is running:
+
+```bash
+curl http://127.0.0.1:8000/audit
+```
+
+---
+
+## Overriding capabilities per request
+
+Send `X-Keypool-Capabilities` header to draw from a different pool for a single request:
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H "X-Keypool-Capabilities: general_purpose,fast" \
+  -d '{"messages":[{"role":"user","content":"hello"}]}'
+```
 
 ---
 
 ## Troubleshooting
 
-**`Connection refused` on port 8000**
-Proxy is not running. Start it with `llm-keypool proxy`.
+**`Connection refused` on port 8000 or 8001**
+Proxy not running. Start with `llm-keypool proxy --port 8000 --capabilities agentic`.
 
 **`all_keys_exhausted` error**
-All keys are in cooldown (daily free-tier limit hit). Check status:
+All keys matching the requested capabilities are in cooldown. Check:
 ```bash
 llm-keypool status
 ```
-Add more keys from other providers or wait for cooldown to clear.
-
-**`no client for provider` error**
-The registered key's provider is not supported. Run `llm-keypool providers`
-to see the supported list.
+Add more keys or wait for cooldowns to clear.
 
 **Key stuck in cooldown after quota reset**
 ```bash
 llm-keypool clear-cooldown --id <ID>
 ```
 
-**Check proxy logs**
-The proxy prints every request to stdout. Check the terminal where you ran
-`llm-keypool proxy`.
+**No agentic keys showing in status**
+Keys were registered with the old `--category` flag. Update them:
+```bash
+# deactivate and re-add with correct capabilities
+llm-keypool deactivate --id <ID>
+llm-keypool add --provider mistral --key sk_... --capabilities agentic --model mistral-large-latest
+```
 
 ---
 
-## Available models by provider
+## Available agentic models by provider
 
-| Provider | Free-tier models |
-|----------|-----------------|
-| Groq | llama-3.3-70b-versatile, llama-3.1-8b-instant, qwen/qwen3-32b, gemma2-9b-it |
-| Cerebras | llama3.1-8b, llama3.3-70b |
-| Mistral | ministral-8b-2512, mistral-small-latest |
-| OpenRouter | (varies by key tier) |
-| SambaNova | llama-3.3-70b |
+| Provider | Model | Notes |
+|---|---|---|
+| Mistral | `mistral-large-latest` | Best free agentic model; tool use supported |
+| OpenRouter | `nousresearch/hermes-3-llama-3.1-405b:free` | Hermes-3, strong function calling |
+| OpenRouter | `qwen/qwen3-32b:free` | Strong reasoning |
+| Groq | `qwen/qwen3-32b` | Fast + agentic |
 
-Run `llm-keypool providers` for the full list, or `curl http://127.0.0.1:8000/v1/models`
-when the proxy is running.
+Run `llm-keypool providers` for full list, or `curl http://127.0.0.1:8000/v1/models`.

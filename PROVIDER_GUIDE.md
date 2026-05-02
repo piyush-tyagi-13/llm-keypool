@@ -17,7 +17,26 @@
 
 ## Providers
 
-All providers support `general_purpose` category (chat/completion models) only. Embedding support is out of scope for this project.
+Each provider lists its **capabilities** - labels used when registering keys and routing requests.
+
+**Known capabilities:**
+
+| Capability | Meaning |
+|---|---|
+| `general_purpose` | Standard chat and completion |
+| `agentic` | Tool use, multi-step reasoning, complex instruction following |
+| `fast` | Sub-second latency, high throughput |
+| `code` | Code generation and completion |
+| `vision` | Image input support |
+| `large_context` | 100k+ token context windows |
+
+Keys can carry multiple capabilities:
+
+```bash
+llm-keypool add --provider groq --key gsk_... --capabilities general_purpose,fast
+```
+
+Embedding models are out of scope - llm-keypool handles chat/completion only.
 
 ---
 

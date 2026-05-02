@@ -1,17 +1,27 @@
 """
 LangChain-compatible wrapper for llm-keypool.
 
-Drop into mdcore's llm_layer.py as a new backend:
+Drop into any LangChain pipeline as a chat model:
 
     from llm_keypool import AggregatorChat
 
-    # in _build_llm():
-    elif backend == "aggregator":
-        return AggregatorChat()
+    llm = AggregatorChat(
+        capabilities=["general_purpose", "fast"],
+        subscriber_id="mdcore.ingest",
+    )
 
-Config (~/.mdcore/config.yaml):
-    llm:
-      backend: aggregator
+Config examples:
+    # general inference
+    AggregatorChat(capabilities=["general_purpose"])
+
+    # hermes main loop - agentic models only
+    AggregatorChat(capabilities=["agentic"], subscriber_id="hermes.main")
+
+    # mdcore synthesis - fast formatter models
+    AggregatorChat(capabilities=["general_purpose", "fast"], subscriber_id="mdcore.synth")
+
+    # deprecated single-category style still works
+    AggregatorChat(category="general_purpose")
 """
 
 from __future__ import annotations
@@ -66,18 +76,45 @@ def _run_async(coro):
 class AggregatorChat(BaseChatModel):
     """
     LangChain ChatModel backed by llm-keypool.
-    Handles key selection, rotation, and 429 retries transparently.
+    Handles key selection, rotation, 429 retries, and audit logging transparently.
+
+    Parameters
+    ----------
+    capabilities : list[str]
+        Key capabilities to draw from. Keys must have at least one matching
+        capability. Defaults to ["general_purpose"].
+        Known values: general_purpose, agentic, fast, code, vision, large_context.
+    subscriber_id : str
+        Identifier for this client, written to the audit log.
+        Use a dotted hierarchy: "mdcore.ingest", "hermes.main", "mdcore.synth".
+    max_tokens : int
+        Maximum tokens to generate. Default 4096.
+    temperature : float
+        Sampling temperature. Default 0.7.
+    rotate_every : int
+        Number of requests before rotating to the next key. Default 5.
+    category : str
+        Deprecated. Use capabilities instead.
     """
 
-    category: str = "general_purpose"
+    capabilities: list[str] = ["general_purpose"]
+    subscriber_id: str = "unknown"
     max_tokens: int = 4096
     temperature: float = 0.7
     rotate_every: int = 5
+
+    # deprecated - kept for backward compat with mdcore aggregator_category config
+    category: str = ""
 
     _rotator: Any = None
 
     class Config:
         arbitrary_types_allowed = True
+
+    def model_post_init(self, __context: Any) -> None:
+        # if category passed and capabilities is still default, use category
+        if self.category and self.capabilities == ["general_purpose"]:
+            object.__setattr__(self, "capabilities", [self.category])
 
     def _get_rotator(self):
         if self._rotator is None:
@@ -90,44 +127,41 @@ class AggregatorChat(BaseChatModel):
 
     @property
     def _identifying_params(self) -> dict:
-        return {"model": f"keypool/{self.category}", "category": self.category}
+        return {
+            "model": f"keypool/{','.join(self.capabilities)}",
+            "capabilities": self.capabilities,
+            "subscriber_id": self.subscriber_id,
+        }
 
     def current_key(self) -> dict | None:
         """
         Return the key that would be selected for the next request.
         Does not make any API call or mutate rotation state.
-
-        Returns dict with: provider, model, key_id, requests_today,
-        tokens_used_today, cooldown_until, cycle_position, rotate_every.
-        Returns None if no keys available.
         """
-        return self._get_rotator().peek_current_key(self.category)
+        return self._get_rotator().peek_current_key(self.capabilities)
 
     def pool_status(self) -> list[dict]:
         """
-        Return current quota state for all active keys in this category.
+        Return current quota state for all active keys matching capabilities.
         Does not make any API call.
-
-        Each entry:
-            provider, model, key_id, requests_today, tokens_used_today,
-            cooldown_until, is_available
         """
         from .key_store import KeyStore
         store = KeyStore()
         now = datetime.now(timezone.utc).isoformat()
-        keys = [k for k in store.get_all_keys() if k["category"] == self.category and k["is_active"]]
+        keys = store.get_active_keys(self.capabilities)
         result = []
         for k in keys:
             cd = k.get("cooldown_until")
             available = not cd or cd < now
             result.append({
-                "key_id":           k["id"],
-                "provider":         k["provider"],
-                "model":            k["model"] or "(provider default)",
-                "requests_today":   k["requests_today"],
+                "key_id":            k["id"],
+                "provider":          k["provider"],
+                "model":             k["model"] or "(provider default)",
+                "capabilities":      store.parse_capabilities(k),
+                "requests_today":    k["requests_today"],
                 "tokens_used_today": k["tokens_used_today"],
-                "cooldown_until":   cd,
-                "is_available":     available,
+                "cooldown_until":    cd,
+                "is_available":      available,
             })
         return result
 
@@ -152,8 +186,9 @@ class AggregatorChat(BaseChatModel):
         msgs = _msgs_to_dicts(messages)
         result, key_data = await _complete(
             self._get_rotator(),
-            category=self.category,
+            capabilities=self.capabilities,
             messages=msgs,
+            subscriber_id=self.subscriber_id,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
@@ -180,6 +215,8 @@ class AggregatorChat(BaseChatModel):
                 "tokens_used_today":  key_data.get("tokens_used_today", 0) + tokens,
                 "remaining_requests": result.remaining_requests,
                 "key_id":             key_data["key_id"],
+                "subscriber_id":      self.subscriber_id,
+                "capabilities":       key_data.get("capabilities", self.capabilities),
             },
         )
         return ChatResult(
@@ -187,6 +224,7 @@ class AggregatorChat(BaseChatModel):
             llm_output={
                 "model_name": model_name,
                 "provider": key_data["provider"],
+                "subscriber_id": self.subscriber_id,
                 "token_usage": {
                     "prompt_tokens": 0,
                     "completion_tokens": tokens,

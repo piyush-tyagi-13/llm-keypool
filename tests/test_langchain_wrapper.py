@@ -46,7 +46,7 @@ class TestAggregatorChat:
         chat = AggregatorChat(category="general_purpose")
         params = chat._identifying_params
         assert "keypool/general_purpose" in params["model"]
-        assert params["category"] == "general_purpose"
+        assert params["capabilities"] == ["general_purpose"]
 
     @patch("llm_keypool.providers.dispatch.complete", new_callable=AsyncMock)
     @patch("llm_keypool.langchain_wrapper._build_rotator")

@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Callable
 
@@ -41,7 +42,6 @@ _DEFAULT_FALLBACK = _rolling(60)
 
 
 def _fallback_from_config(cfg: dict) -> Callable[[], str]:
-    """Read cooldown_fallback.strategy from provider config; default to rolling 60s."""
     key = cfg.get("cooldown_fallback", {}).get("strategy", "rolling_60")
     return _FALLBACK_STRATEGIES.get(key, _DEFAULT_FALLBACK)
 
@@ -51,14 +51,19 @@ def _score_key(key: dict, cfg: dict) -> float:
     return float(rpd - key["requests_today"]) if rpd else float(-key["requests_today"])
 
 
-def _resolve_model(cfg: dict, category: str) -> str:
+def _resolve_model(cfg: dict, cap_key: str) -> str:
     models = cfg.get("models", {})
     if isinstance(models, list):
         return models[0] if models else ""
     if isinstance(models, dict):
-        cat_models = models.get(category, [])
+        cat_models = models.get(cap_key, [])
         return cat_models[0] if cat_models else ""
-    return cfg.get(f"default_{category}_model") or cfg.get("default_model", "")
+    return cfg.get("default_model", "")
+
+
+def _cap_key(capabilities: list[str]) -> str:
+    """Canonical string key for a capabilities set, used as rotation state key."""
+    return ",".join(sorted(capabilities))
 
 
 class Rotator:
@@ -70,52 +75,66 @@ class Rotator:
         self._order: dict[str, list[int]] = {}
         self._cursor: dict[str, int] = {}
         self._slot_count: dict[int, int] = {}
-        self._loaded_categories: set[str] = set()
+        self._loaded_cap_keys: set[str] = set()
+        # track which cap_key context each key_id was last selected under
+        self._key_last_cap_key: dict[int, str] = {}
 
-    def _load_state(self, category: str):
-        if category in self._loaded_categories:
+    def _load_state(self, ck: str):
+        if ck in self._loaded_cap_keys:
             return
-        cursor, slot_counts = self.store.load_rotation_state(category)
-        self._cursor[category] = cursor
+        cursor, slot_counts = self.store.load_rotation_state(ck)
+        self._cursor[ck] = cursor
         self._slot_count.update(slot_counts)
-        self._loaded_categories.add(category)
+        self._loaded_cap_keys.add(ck)
 
-    def _persist_state(self, category: str):
+    def _persist_state(self, ck: str):
         self.store.save_rotation_state(
-            category,
-            self._cursor.get(category, 0),
+            ck,
+            self._cursor.get(ck, 0),
             self._slot_count,
         )
 
-    def _ensure_order(self, category: str, active_ids: set[int]):
-        self._load_state(category)
-        current = self._order.get(category, [])
+    def _ensure_order(self, ck: str, capabilities: list[str], active_ids: set[int]):
+        self._load_state(ck)
+        current = self._order.get(ck, [])
         if set(current) == active_ids:
             return
         all_keys = self.store.get_all_keys()
         ordered = sorted(
-            [k for k in all_keys if k["category"] == category and k["is_active"]],
+            [
+                k for k in all_keys
+                if k["is_active"] and any(
+                    c in self.store.parse_capabilities(k) for c in capabilities
+                )
+            ],
             key=lambda k: _score_key(k, self.configs.get(k["provider"], {})),
             reverse=True,
         )
-        self._order[category] = [k["id"] for k in ordered]
-        if category not in self._cursor:
-            self._cursor[category] = 0
+        self._order[ck] = [k["id"] for k in ordered]
+        if ck not in self._cursor:
+            self._cursor[ck] = 0
         else:
-            self._cursor[category] %= max(len(self._order[category]), 1)
+            self._cursor[ck] %= max(len(self._order[ck]), 1)
         for k in ordered:
             self._slot_count.setdefault(k["id"], 0)
 
-    def get_best_key(self, category: str) -> Optional[dict]:
-        active = self.store.get_active_keys(category)
+    def get_best_key(
+        self,
+        capabilities: list[str] | str,
+        subscriber_id: str = "unknown",
+    ) -> Optional[dict]:
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
+        ck = _cap_key(capabilities)
+        active = self.store.get_active_keys(capabilities)
         if not active:
             return None
 
         active_map = {k["id"]: k for k in active}
-        self._ensure_order(category, set(active_map.keys()))
+        self._ensure_order(ck, capabilities, set(active_map.keys()))
 
-        order  = self._order[category]
-        cursor = self._cursor.get(category, 0) % len(order)
+        order  = self._order[ck]
+        cursor = self._cursor.get(ck, 0) % len(order)
 
         reset_done = False
         for _ in range(len(order) + 1):
@@ -123,14 +142,14 @@ class Rotator:
             if key_id in active_map and self._slot_count.get(key_id, 0) < self.rotate_every:
                 break
             cursor = (cursor + 1) % len(order)
-            if not reset_done and cursor == self._cursor.get(category, 0) % len(order):
+            if not reset_done and cursor == self._cursor.get(ck, 0) % len(order):
                 for kid in order:
                     self._slot_count[kid] = 0
                 reset_done = True
         else:
             return None
 
-        self._cursor[category] = cursor
+        self._cursor[ck] = cursor
         best = active_map[order[cursor]]
         cfg   = self.configs.get(best["provider"], {})
         extra = json.loads(best["extra_params"] or "{}")
@@ -140,13 +159,17 @@ class Rotator:
             base_url = base_url.format(account_id=extra.get("account_id", ""))
 
         slot_pos = self._slot_count.get(best["id"], 0) + 1
+        self._key_last_cap_key[best["id"]] = ck
+
         return {
             "key_id":            best["id"],
             "provider":          best["provider"],
             "api_key":           best["api_key"],
             "base_url":          base_url,
-            "model":             best["model"] or _resolve_model(cfg, category),
-            "category":          category,
+            "model":             best["model"] or _resolve_model(cfg, ck),
+            "capabilities":      self.store.parse_capabilities(best),
+            "cap_key":           ck,
+            "subscriber_id":     subscriber_id,
             "openai_compatible": cfg.get("openai_compatible", True),
             "extra_params":      extra,
             "requests_today":    best["requests_today"],
@@ -155,21 +178,21 @@ class Rotator:
             "rotate_every":      self.rotate_every,
         }
 
-    def peek_current_key(self, category: str) -> Optional[dict]:
-        """
-        Return the key that would be selected next without mutating any state.
-        Returns None if no keys are available.
-        """
-        active = self.store.get_active_keys(category)
+    def peek_current_key(self, capabilities: list[str] | str) -> Optional[dict]:
+        """Return the key that would be selected next without mutating state."""
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
+        ck = _cap_key(capabilities)
+        active = self.store.get_active_keys(capabilities)
         if not active:
             return None
 
         active_map = {k["id"]: k for k in active}
-        self._ensure_order(category, set(active_map.keys()))
+        self._ensure_order(ck, capabilities, set(active_map.keys()))
 
-        order  = self._order[category]
-        cursor = self._cursor.get(category, 0) % len(order)
-        slot_count = dict(self._slot_count)  # read-only copy
+        order      = self._order[ck]
+        cursor     = self._cursor.get(ck, 0) % len(order)
+        slot_count = dict(self._slot_count)
 
         for _ in range(len(order) + 1):
             key_id = order[cursor % len(order)]
@@ -185,7 +208,8 @@ class Rotator:
         return {
             "key_id":            best["id"],
             "provider":          best["provider"],
-            "model":             best["model"] or _resolve_model(cfg, category),
+            "model":             best["model"] or _resolve_model(cfg, ck),
+            "capabilities":      self.store.parse_capabilities(best),
             "requests_today":    best["requests_today"],
             "tokens_used_today": best["tokens_used_today"],
             "cooldown_until":    best.get("cooldown_until"),
@@ -193,11 +217,14 @@ class Rotator:
             "rotate_every":      self.rotate_every,
         }
 
-    def handle_429(self, key_id: int, provider: str, headers: dict | None = None) -> str:
-        """
-        Compute cooldown_until for a 429 response.
-        Header-derived reset time takes priority; falls back to config-driven strategy.
-        """
+    def handle_429(
+        self,
+        key_id: int,
+        provider: str,
+        headers: dict | None = None,
+        subscriber_id: str = "unknown",
+        model: str = "",
+    ) -> str:
         headers = headers or {}
         cooldown = extract_cooldown(provider, headers, was_429=True)
         if cooldown is None:
@@ -205,7 +232,17 @@ class Rotator:
             cooldown = _fallback_from_config(cfg)()
         self.store.record_usage(key_id, tokens=0, was_429=True, cooldown_until=cooldown)
         self._slot_count[key_id] = self._slot_count.get(key_id, 0) + 1
-        self._persist_state_for_key(key_id)
+        ck = self._key_last_cap_key.get(key_id, "")
+        if ck:
+            self._persist_state(ck)
+        self.store.log_audit(
+            subscriber_id=subscriber_id,
+            key_id=key_id,
+            provider=provider,
+            model=model,
+            success=False,
+            error="429 rate limit",
+        )
         return cooldown
 
     def handle_success(
@@ -214,26 +251,36 @@ class Rotator:
         tokens_used: int,
         headers: dict | None = None,
         provider: str = "",
+        tokens_in: int = 0,
+        latency_ms: int = 0,
+        subscriber_id: str = "unknown",
+        model: str = "",
     ):
-        """
-        Record a successful call. If headers indicate quota exhaustion (remaining == 0),
-        set a proactive cooldown so the key is skipped until the window resets.
-        """
         headers = headers or {}
         cooldown = extract_cooldown(provider, headers, was_429=False) if provider else None
         self.store.record_usage(key_id, tokens=tokens_used, was_429=False, cooldown_until=cooldown)
         self._slot_count[key_id] = self._slot_count.get(key_id, 0) + 1
-        self._persist_state_for_key(key_id)
+        ck = self._key_last_cap_key.get(key_id, "")
+        if ck:
+            self._persist_state(ck)
+        self.store.log_audit(
+            subscriber_id=subscriber_id,
+            key_id=key_id,
+            provider=provider,
+            model=model,
+            tokens_in=tokens_in,
+            tokens_out=tokens_used,
+            latency_ms=latency_ms,
+            success=True,
+        )
 
-    def _persist_state_for_key(self, key_id: int):
-        key = self.store.get_key_by_id(key_id)
-        if key:
-            self._persist_state(key["category"])
-
-    def get_earliest_retry(self, category: str) -> Optional[str]:
+    def get_earliest_retry(self, capabilities: list[str] | str) -> Optional[str]:
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
         all_keys = self.store.get_all_keys()
         cooldowns = [
             k["cooldown_until"] for k in all_keys
-            if k["category"] == category and k["is_active"] and k["cooldown_until"]
+            if k["is_active"] and k["cooldown_until"]
+            and any(c in self.store.parse_capabilities(k) for c in capabilities)
         ]
         return min(cooldowns) if cooldowns else None

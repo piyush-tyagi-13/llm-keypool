@@ -13,7 +13,7 @@ from llm_keypool.rotator import (
 
 PROVIDER_CONFIGS = {
     "groq": {
-        "category": ["general_purpose"],
+        "capabilities": ["general_purpose"],
         "base_url": "https://api.groq.com/openai/v1",
         "openai_compatible": True,
         "limits": {"rpm": 30, "rpd": 14400},
@@ -22,7 +22,7 @@ PROVIDER_CONFIGS = {
         "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
     },
     "mistral": {
-        "category": ["general_purpose"],
+        "capabilities": ["general_purpose"],
         "base_url": "https://api.mistral.ai/v1",
         "openai_compatible": True,
         "limits": {"rpm": 2},
@@ -31,7 +31,7 @@ PROVIDER_CONFIGS = {
         "models": ["mistral-large-latest"],
     },
     "cohere": {
-        "category": ["general_purpose"],
+        "capabilities": ["general_purpose"],
         "base_url": "https://api.cohere.com/v2",
         "openai_compatible": False,
         "limits": {"rpm": 20},

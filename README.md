@@ -18,9 +18,13 @@ Works as a free drop-in backend for [Hermes Agent](https://github.com/nousresear
 
 ## What it does
 
-- **Multi-provider pooling** - pool keys across Groq, Cerebras, Mistral, OpenRouter, SambaNova, and more
+- **Multi-provider pooling** - pool keys across Groq, Cerebras, Mistral, OpenRouter, SambaNova, Google, and more
+- **Capabilities tagging** - tag keys with multiple capabilities (`agentic`, `fast`, `general_purpose`, `code`, `vision`, `large_context`); each proxy instance filters by the capabilities it serves
 - **Automatic rotation** - round-robin across keys, rotates every N requests (default: 5)
 - **429 handling** - on rate limit, key enters cooldown; next call retries a different key automatically
+- **Two-tier proxy** - run separate proxy instances for agentic vs. fast general-purpose traffic; Hermes main loop uses :8000 (agentic), delegate calls use :8001 (fast)
+- **Audit log** - every LLM call logged with subscriber ID, provider, model, token counts, latency; query with `llm-keypool audit`
+- **Subscriber tracking** - pass `X-Subscriber-ID` header (proxy) or `subscriber_id=` param (AggregatorChat) to attribute calls to `hermes.main`, `mdcore.ingest`, `mdcore.synth`, etc.
 - **OpenAI-compatible proxy** - `llm-keypool proxy` starts a local server at `http://localhost:8000/v1`; point any agent or tool at it and get transparent rotation
 - **Think-token stripping** - removes `<think>...</think>` from reasoning model outputs
 - **Persistent state** - SQLite, WAL mode; rotation position and cooldowns survive restarts
@@ -70,8 +74,9 @@ uv tool install --force "markdowncore-ai[gui]" --with llm-keypool
 
 ```bash
 # Register keys (one-time)
-llm-keypool add --provider groq --key gsk_... --model llama-3.3-70b-versatile --category general_purpose
-llm-keypool add --provider cerebras --key csk_... --model llama-3.3-70b --category general_purpose
+llm-keypool add --provider groq --key gsk_... --model llama-3.3-70b-versatile --capabilities general_purpose,fast
+llm-keypool add --provider cerebras --key csk_... --model llama-3.3-70b --capabilities general_purpose,fast
+llm-keypool add --provider mistral --key sk_... --model mistral-large-latest --capabilities agentic
 
 # Check status
 llm-keypool status
@@ -106,21 +111,32 @@ llm-keypool status
 Register an API key for a provider.
 
 ```bash
-llm-keypool add --provider <provider> --key <key> [--model <model>] [--category <category>]
+llm-keypool add --provider <provider> --key <key> [--model <model>] [--capabilities <caps>]
 ```
 
 | Flag | Default | Description |
 |---|---|---|
 | `--model` | provider default | Override the model used for this key |
-| `--category` | `general_purpose` | Key pool category |
+| `--capabilities` | `general_purpose` | Comma-separated capabilities for this key |
+
+Known capabilities: `general_purpose`, `agentic`, `fast`, `code`, `vision`, `large_context`
 
 Examples:
 
 ```bash
-llm-keypool add --provider groq --key gsk_...          --model llama-3.3-70b-versatile --category general_purpose
-llm-keypool add --provider cerebras --key csk_...      --model llama-3.3-70b           --category general_purpose
-llm-keypool add --provider mistral --key sk_...        --model mistral-small-latest     --category general_purpose
-llm-keypool add --provider openrouter --key sk-or-...  --model meta-llama/llama-3.3-70b-instruct:free --category general_purpose
+# general + fast pool (cerebras, groq)
+llm-keypool add --provider groq     --key gsk_...     --capabilities general_purpose,fast  --model llama-3.3-70b-versatile
+llm-keypool add --provider cerebras --key csk_...     --capabilities general_purpose,fast  --model llama3.3-70b
+
+# agentic pool (tool use, reasoning)
+llm-keypool add --provider mistral    --key sk_...    --capabilities agentic               --model mistral-large-latest
+llm-keypool add --provider openrouter --key sk-or-... --capabilities agentic               --model nousresearch/hermes-3-llama-3.1-405b:free
+
+# agentic + fast (groq qwen3)
+llm-keypool add --provider groq --key gsk_... --capabilities agentic,fast --model qwen/qwen3-32b
+
+# google gemini (general + fast)
+llm-keypool add --provider google --key AIza... --capabilities general_purpose,fast --model gemini-2.0-flash
 ```
 
 ---
@@ -167,40 +183,73 @@ Features: tabular key view, inline deactivate/clear-cooldown, add key form.
 
 ---
 
+### `llm-keypool audit`
+
+Show the audit log of all LLM calls with subscriber attribution.
+
+```bash
+# summary by subscriber (last 7 days)
+llm-keypool audit --summary
+
+# raw rows
+llm-keypool audit
+
+# filter to one subscriber
+llm-keypool audit --subscriber mdcore.ingest
+
+# longer window
+llm-keypool audit --summary --days 30
+```
+
+---
+
 ### `llm-keypool proxy`
 
 Start a local OpenAI-compatible proxy server. Requires `[proxy]` extra.
 
 ```bash
-llm-keypool proxy [--host 127.0.0.1] [--port 8000] [--category general_purpose] [--rotate-every 5]
+llm-keypool proxy [--host 127.0.0.1] [--port 8000] [--capabilities general_purpose] [--rotate-every 5]
 ```
 
-The proxy exposes three endpoints:
+Two-proxy setup (recommended for Hermes + mdcore):
+
+```bash
+llm-keypool proxy --port 8000 --capabilities agentic               # Hermes main loop
+llm-keypool proxy --port 8001 --capabilities general_purpose,fast  # delegate + mdcore
+```
+
+The proxy exposes four endpoints:
 
 | Endpoint | Description |
 |---|---|
 | `POST /v1/chat/completions` | Chat completions with streaming (SSE) support |
 | `GET /v1/models` | Lists all models across registered providers |
-| `GET /health` | Pool status - total and active key counts |
+| `GET /health` | Pool status including active capabilities |
+| `GET /audit` | Aggregate token usage by subscriber (last 7 days) |
 
-Point any OpenAI-compatible client at `http://127.0.0.1:8000/v1`:
+Request headers:
+
+| Header | Description |
+|---|---|
+| `X-Subscriber-ID` | Tag this call for audit (e.g. `hermes.main`, `mdcore.ingest`) |
+| `X-Keypool-Capabilities` | Override capabilities for this request (comma-separated) |
+| `X-Keypool-Category` | Deprecated - use `X-Keypool-Capabilities` |
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="keypool")
 response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
+    model="any",
     messages=[{"role": "user", "content": "Hello"}],
+    extra_headers={"X-Subscriber-ID": "my-app"},
 )
 print(response.choices[0].message.content)
 ```
 
-Each key uses its own assigned model - the `model` field in the request is ignored so rotation across providers (Groq, Cerebras, Mistral, OpenRouter) works correctly regardless of what model name the client sends.
+Each key uses its own assigned model - the `model` field is ignored so rotation across providers works regardless of what model name the client sends.
 
-Override the key category per request with the `X-Keypool-Category` header.
-
-**Hermes Agent integration:** see [docs/hermes-agent.md](docs/hermes-agent.md) for a full setup guide.
+**Hermes Agent integration:** see [docs/hermes-agent.md](docs/hermes-agent.md) for full two-proxy setup guide.
 
 ---
 
@@ -208,12 +257,14 @@ Override the key category per request with the `X-Keypool-Category` header.
 
 All providers below have a free tier. No credit card required.
 
-| Provider | Suggested model | Signup |
-|---|---|---|
-| Groq | `llama-3.3-70b-versatile` | https://console.groq.com/keys |
-| Cerebras | `llama-3.3-70b` | https://cloud.cerebras.ai |
-| Mistral | `mistral-small-latest` | https://console.mistral.ai/api-keys |
-| OpenRouter | `meta-llama/llama-3.3-70b-instruct:free` | https://openrouter.ai/settings/keys |
+| Provider | Suggested model | Capabilities | Signup |
+|---|---|---|---|
+| Groq | `llama-3.3-70b-versatile` | general_purpose, fast | https://console.groq.com/keys |
+| Cerebras | `llama3.3-70b` | general_purpose, fast | https://cloud.cerebras.ai |
+| Mistral | `mistral-large-latest` | agentic | https://console.mistral.ai/api-keys |
+| OpenRouter | `meta-llama/llama-3.3-70b-instruct:free` | general_purpose | https://openrouter.ai/settings/keys |
+| Google | `gemini-2.0-flash` | general_purpose, fast | https://aistudio.google.com/apikey |
+| SambaNova | `Meta-Llama-3.3-70B-Instruct` | general_purpose | https://cloud.sambanova.ai/apis |
 
 Full provider details and rate limits: [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md)
 
@@ -227,7 +278,8 @@ Full provider details and rate limits: [PROVIDER_GUIDE.md](PROVIDER_GUIDE.md)
 from llm_keypool import AggregatorChat  # only chat models - no embedding support
 
 llm = AggregatorChat(
-    category="general_purpose",
+    capabilities=["general_purpose", "fast"],
+    subscriber_id="my-app",
     max_tokens=4096,
     temperature=0.7,
     rotate_every=5,
@@ -236,7 +288,19 @@ llm = AggregatorChat(
 response = llm.invoke("What is the capital of France?")
 print(response.content)
 print(response.response_metadata)
-# {"provider": "groq", "model": "llama-3.3-70b-versatile", "model_name": "llama-3.3-70b-versatile", "tokens_used": 42}
+# {"provider": "groq", "model": "llama-3.3-70b-versatile", "subscriber_id": "my-app", "tokens_used": 42}
+
+# mdcore ingestion
+ingest_llm = AggregatorChat(capabilities=["general_purpose", "fast"], subscriber_id="mdcore.ingest")
+
+# mdcore synthesis
+synth_llm = AggregatorChat(capabilities=["general_purpose", "fast"], subscriber_id="mdcore.synth")
+
+# hermes delegate calls
+delegate_llm = AggregatorChat(capabilities=["general_purpose", "fast"], subscriber_id="hermes.delegate")
+
+# deprecated category style still works
+legacy_llm = AggregatorChat(category="general_purpose")  # same as capabilities=["general_purpose"]
 ```
 
 Async:

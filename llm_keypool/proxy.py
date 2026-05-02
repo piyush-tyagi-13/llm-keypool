@@ -28,35 +28,58 @@ class _ChatRequest(BaseModel):
     stream: Optional[bool] = False
 
 
-def make_app(category: str = "general_purpose", rotate_every: int = 5) -> FastAPI:
+def make_app(
+    capabilities: list[str] | None = None,
+    rotate_every: int = 5,
+    # deprecated
+    category: str | None = None,
+) -> FastAPI:
+    if capabilities is None:
+        capabilities = [category] if category else ["general_purpose"]
+
     store = KeyStore()
     configs = _load_provider_configs()
     rotator = Rotator(store, configs, rotate_every=rotate_every)
 
-    app = FastAPI(title="llm-keypool proxy", version="1.0")
+    app = FastAPI(title="llm-keypool proxy", version="2.0")
 
     @app.post("/v1/chat/completions")
     async def chat_completions(
         req: _ChatRequest,
-        x_keypool_category: Optional[str] = Header(None),
+        x_keypool_capabilities: Optional[str] = Header(None),
+        x_keypool_category: Optional[str] = Header(None),  # deprecated compat
+        x_subscriber_id: Optional[str] = Header(None),
     ):
-        cat = x_keypool_category or category
+        # resolve capabilities: header overrides server default
+        if x_keypool_capabilities:
+            caps = [c.strip() for c in x_keypool_capabilities.split(",") if c.strip()]
+        elif x_keypool_category:
+            caps = [x_keypool_category.strip()]
+        else:
+            caps = capabilities
+
+        subscriber = x_subscriber_id or "proxy"
 
         kwargs: dict[str, Any] = {}
         if req.max_tokens is not None:
             kwargs["max_tokens"] = req.max_tokens
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
-        # Do not forward req.model - each key uses its own assigned model
-        # so rotation across providers (groq/cerebras/mistral) works correctly.
 
-        result, key_data = await complete(rotator, cat, req.messages, **kwargs)
+        result, key_data = await complete(
+            rotator,
+            capabilities=caps,
+            messages=req.messages,
+            subscriber_id=subscriber,
+            **kwargs,
+        )
 
         if result.error and not result.text:
             status = 429 if "exhausted" in (result.error or "") else 503
             raise HTTPException(status_code=status, detail=result.error)
 
         model_used = (key_data["model"] if key_data else None) or req.model or "unknown"
+        provider_used = key_data["provider"] if key_data else "unknown"
         resp_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         created = int(time.time())
 
@@ -80,7 +103,11 @@ def make_app(category: str = "general_purpose", rotate_every: int = 5) -> FastAP
                 yield f"data: {json.dumps(done_chunk)}\n\n"
                 yield "data: [DONE]\n\n"
 
-            return StreamingResponse(_stream(), media_type="text/event-stream")
+            return StreamingResponse(
+                _stream(),
+                media_type="text/event-stream",
+                headers={"X-Key-Provider": provider_used},
+            )
 
         return {
             "id": resp_id,
@@ -89,6 +116,7 @@ def make_app(category: str = "general_purpose", rotate_every: int = 5) -> FastAP
             "model": model_used,
             "choices": [{"index": 0, "message": {"role": "assistant", "content": result.text}, "finish_reason": "stop"}],
             "usage": {"prompt_tokens": 0, "completion_tokens": result.tokens_used, "total_tokens": result.tokens_used},
+            "x_key_provider": provider_used,
         }
 
     @app.get("/v1/models")
@@ -112,6 +140,15 @@ def make_app(category: str = "general_purpose", rotate_every: int = 5) -> FastAP
     async def health():
         keys = store.get_all_keys()
         active = sum(1 for k in keys if k["is_active"])
-        return {"status": "ok", "keys_total": len(keys), "keys_active": active}
+        return {
+            "status": "ok",
+            "keys_total": len(keys),
+            "keys_active": active,
+            "capabilities": capabilities,
+        }
+
+    @app.get("/audit")
+    async def audit_summary(days: int = 7):
+        return store.get_audit_summary(days=days)
 
     return app
